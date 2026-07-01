@@ -1,0 +1,3 @@
+{"user_input": "我的订单 ORD1001 到哪了？", "intent": "order_query", "required_tool": "query_order", "slots": {"order_id": "ORD1001"}, "response_type": "order_status_reply"}
+{"user_input": "我买了10天还能退吗？", "intent": "refund_policy", "required_tool": "search_policy", "slots": {"received_days": 10}, "response_type": "policy_explanation"}
+{"user_input": "商品坏了，无法使用", "intent": "after_sales", "required_tool": "create_ticket", "slots": {"quality_issue": true}, "response_type": "create_after_sales_ticket"}

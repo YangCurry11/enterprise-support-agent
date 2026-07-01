@@ -1,0 +1,79 @@
+openapi: 3.0.3
+info:
+  title: Mock Enterprise Support API
+  version: 0.1.0
+  description: 可导入 Dify/Coze 作为 HTTP 工具的示例 OpenAPI 文件。
+servers:
+  - url: http://127.0.0.1:8000
+paths:
+  /orders/{order_id}:
+    get:
+      summary: 查询订单状态
+      operationId: queryOrder
+      parameters:
+        - name: order_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 订单号，例如 ORD1001
+      responses:
+        '200':
+          description: 订单详情
+          content:
+            application/json:
+              schema:
+                type: object
+  /users/{user_id}:
+    get:
+      summary: 查询用户信息
+      operationId: queryUser
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 用户信息
+          content:
+            application/json:
+              schema:
+                type: object
+  /tickets:
+    post:
+      summary: 创建售后/投诉工单
+      operationId: createTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, issue_type, description]
+              properties:
+                user_id:
+                  type: string
+                  example: U1001
+                issue_type:
+                  type: string
+                  example: complaint
+                description:
+                  type: string
+                  example: 用户投诉商品损坏
+                order_id:
+                  type: string
+                  nullable: true
+                  example: ORD1001
+                priority:
+                  type: string
+                  enum: [low, normal, high]
+                  example: high
+      responses:
+        '200':
+          description: 工单详情
+          content:
+            application/json:
+              schema:
+                type: object
