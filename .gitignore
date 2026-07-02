@@ -34,3 +34,5 @@ data/tickets.json
 *.pth
 *.ckpt
 *.bin
+
+data/*.db

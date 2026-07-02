@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import streamlit as st # 流式处理 streamlit
 
+from support_agent.storage import list_agent_runs
+
 from support_agent.agents import CustomerSupportAgent
 
 st.set_page_config(page_title="企业客服多 Agent Demo", page_icon="🤖", layout="wide")
@@ -41,3 +43,35 @@ if st.button("运行 Agent", type="primary"):
 
     st.subheader("完整状态 JSON")
     st.json(result)
+    st.subheader("最近 10 条 Agent 运行日志")
+
+    try:
+        history = list_agent_runs(limit=10)
+
+        if not history:
+            st.info("暂无历史运行日志。")
+        else:
+            for item in history:
+                title = f"{item['created_at']} | {item['intent']} | {item['user_input'][:30]}"
+
+                with st.expander(title, expanded=False):
+                    st.write("运行编号：", item["run_id"])
+                    st.write("用户编号：", item["user_id"])
+                    st.write("意图：", item["intent"])
+                    st.write("订单号：", item["order_id"])
+                    st.write("是否需要人工：", item["need_human"])
+                    st.write("耗时：", f"{item['latency_ms']} ms")
+                    st.write("最终回复：")
+                    st.success(item["final_response"])
+
+                    st.write("Agent 执行步骤：")
+                    st.json(item["steps"])
+
+                    st.write("工具调用结果：")
+                    st.json(item["tool_results"])
+
+                    st.write("RAG 检索结果：")
+                    st.json(item["retrieved_docs"])
+
+    except Exception as exc:
+        st.warning(f"读取运行日志失败：{exc}")

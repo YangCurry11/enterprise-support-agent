@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict # dataclass数据类
 from typing import Any, Dict, List, Optional # 类型注解 Dirt字典 List列表 Optional字符串或空
 
+import time
+
 from .config import DEFAULT_USER_ID # 默认用户ID
 from .intent import (
     classify_intent,
@@ -196,7 +198,75 @@ class ResponseAgent: # 回复生成
             return "商品损坏、无法使用、少件、错发等情况应创建售后工单，并附上照片、视频或问题描述，便于人工客服审核处理。"
         return "请结合退款、物流、售后政策处理；若存在争议、投诉或复杂情况，应转人工。"
 
+# LLM 回复 Agent
+class LLMResponseAgent(ResponseAgent): # LLMResponseAgent 继承 ResponseAgent
+    """
+    LLM 回复 Agent。
 
+    它先调用原来的 ResponseAgent 生成模板回复，
+    再调用大模型把模板回复润色成更自然的客服话术。
+    如果大模型失败，就保留原模板回复。
+    """
+
+    def run(self, state: AgentState) -> AgentState:
+        # 1. 先用原来的固定模板生成一个兜底回复
+        state = super().run(state) # 调用父类 ResponseAgent 的 run 方法
+        template_reply = state.final_response
+
+        try:
+            from .llm_client import generate_customer_reply, is_llm_enabled
+
+            if not is_llm_enabled():
+                state.add_step("LLMResponseAgent", {
+                    "mode": "disabled",
+                    "reason": "未配置 LLM_API_KEY，使用模板回复"
+                })
+                return state
+
+            # 2. 从 tool_results 里取订单信息
+            order_info = None
+            order_result = state.tool_results.get("query_order", {})
+            if isinstance(order_result, dict) and order_result.get("ok"):
+                order_info = order_result.get("data")
+
+            # 3. 从 tool_results 里取工单信息
+            ticket_info = None
+            ticket_result = state.tool_results.get("create_ticket", {})
+            if isinstance(ticket_result, dict) and ticket_result.get("ok"):
+                ticket_info = ticket_result.get("data")
+
+            # 4. 调用大模型生成回复
+            llm_reply = generate_customer_reply(
+                user_question=state.user_input,
+                intent=state.intent,
+                order_info=order_info,
+                policy_docs=state.retrieved_docs,
+                ticket_info=ticket_info,
+                need_human=state.need_human,
+                template_reply=template_reply,
+            )
+            
+            # 更新最终回复
+            if llm_reply:
+                state.final_response = llm_reply
+                # 记录执行步骤
+                state.add_step("LLMResponseAgent", {
+                    "mode": "llm_generated",
+                    "template_reply": template_reply,
+                    "llm_reply": llm_reply,
+                })
+
+            return state
+
+        except Exception as exc:
+            # 5. 大模型失败时，保留原模板回复
+            state.add_step("LLMResponseAgent", {
+                "mode": "fallback_template",
+                "error": str(exc),
+                "template_reply": template_reply,
+            })
+            return state
+        
 class CustomerSupportAgent: # 客户支持代理：总控制器
     """多 Agent 编排器：意图识别 -> 工具/知识库 -> 工单 -> 回复。"""
 
@@ -206,26 +276,60 @@ class CustomerSupportAgent: # 客户支持代理：总控制器
         self.order_agent = OrderAgent(self.tools)
         self.policy_agent = PolicyAgent(self.tools)
         self.ticket_agent = TicketAgent(self.tools)
-        self.response_agent = ResponseAgent()
+        self.response_agent = LLMResponseAgent()
 
     def run(self, user_input: str, user_id: str = DEFAULT_USER_ID) -> Dict[str, Any]:
-        state = AgentState(user_input=user_input, user_id=user_id)  # 初始化AgentState
-        state = self.intent_agent.run(state) # 意图识别
+        start_time = time.perf_counter() # 记录开始时间
+
+        state = AgentState(user_input=user_input, user_id=user_id)
+
+        state = self.intent_agent.run(state)
 
         if state.intent == INTENT_ORDER:
             state = self.order_agent.run(state)
-            # 对待发货/物流异常类可扩展为自动创建工单，这里先只回复
+
         elif state.intent in [INTENT_REFUND, INTENT_SHIPPING, INTENT_AFTER_SALES, INTENT_UNKNOWN]:
             state = self.policy_agent.run(state)
-            # 售后问题如果有明显“坏/无法使用/少件”可自动建普通售后工单
+
             if state.intent == INTENT_AFTER_SALES:
-                state = self.ticket_agent.run(state, issue_type="after_sales", priority="normal")
+                state = self.ticket_agent.run(
+                    state,
+                    issue_type="after_sales",
+                    priority="normal",
+                )
+
         elif state.intent == INTENT_COMPLAINT:
             state.need_human = True
-            state = self.ticket_agent.run(state, issue_type="complaint", priority="high")
+            state = self.ticket_agent.run(
+                state,
+                issue_type="complaint",
+                priority="high",
+            )
+
         elif state.intent == INTENT_HUMAN:
             state.need_human = True
-            state = self.ticket_agent.run(state, issue_type="human_escalation", priority="high")
+            state = self.ticket_agent.run(
+                state,
+                issue_type="human_escalation",
+                priority="high",
+            )
 
         state = self.response_agent.run(state)
-        return state.to_dict()
+
+        result = state.to_dict()
+
+        latency_ms = int((time.perf_counter() - start_time) * 1000) # 计算耗时
+
+        try:
+            # 保存日志
+            from .storage import save_agent_run
+
+            run_id = save_agent_run(result, latency_ms=latency_ms)
+            result["run_id"] = run_id
+            result["latency_ms"] = latency_ms
+
+        except Exception as exc:
+            result["storage_error"] = str(exc)
+            result["latency_ms"] = latency_ms
+
+        return result
