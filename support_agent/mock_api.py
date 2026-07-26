@@ -11,12 +11,24 @@ from pydantic import BaseModel, Field  # 定义请求参数和响应数据的模
  
 from .config import DATA_DIR, POLICY_DIR
 
+from .business_db import (
+    init_business_db,
+    seed_business_db_from_json,
+    get_order as db_get_order,
+    get_user as db_get_user,
+    create_ticket as db_create_ticket,
+    list_tickets as db_list_tickets,
+)
+
 # 创建 FastAPI 应用
 app = FastAPI(
     title="Mock Enterprise Support API",
     description="模拟企业内部订单、用户、工单和政策接口，供 Agent 工具调用。",
     version="0.1.0",
 )
+
+init_business_db()
+seed_business_db_from_json(overwrite=False)
 
 # 读取json文件
 def _load_json(path: Path):
@@ -46,53 +58,46 @@ def health_check():
     return {"status": "ok", "service": "mock enterprise support api"}
 
 
-@app.get("/orders/{order_id}") # 查询订单接口 
-def get_order(order_id: str):
-    orders = _load_json(DATA_DIR / "orders.json") # 获取orders.json文件
-    order = orders.get(order_id.upper())
+@app.get("/orders/{order_id}")  #查询订单接口，直接查找SQLite数据库中的orders表
+def get_order(order_id: str): 
+    order = db_get_order(order_id)
+
     if not order:
-        raise HTTPException(status_code=404, detail=f"订单不存在：{order_id}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"订单不存在：{order_id}"
+        )
+
     return order
 
 
-@app.get("/users/{user_id}") # 查询用户接口
+@app.get("/users/{user_id}") # 查询用户接口，直接查找SQLite数据库中的users表
 def get_user(user_id: str):
-    users = _load_json(DATA_DIR / "users.json")
-    user = users.get(user_id.upper())
+    user = db_get_user(user_id)
+
     if not user:
-        raise HTTPException(status_code=404, detail=f"用户不存在：{user_id}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"用户不存在：{user_id}"
+        )
+
     return user
 
 
-@app.post("/tickets") # 创建工单接口
+@app.post("/tickets") # 创建工单接口，直接插入SQLite数据库中的tickets表，创建工单逻辑在business_db.py中
 def create_ticket(ticket: TicketCreate):
-    tickets_path = DATA_DIR / "tickets.json"
-    tickets = _load_json(tickets_path)
-    if not isinstance(tickets, list): # isinstance(tickets, list) 判断tickets是否是列表
-        tickets = []
-
-    ticket_id = f"TKT{datetime.now().strftime('%Y%m%d%H%M%S')}" # 以现在时间擦拆分年月日时分秒为工单号
-    # 组织工单记录
-    record = {
-        "ticket_id": ticket_id,
-        "user_id": ticket.user_id,
-        "order_id": ticket.order_id,
-        "issue_type": ticket.issue_type,
-        "description": ticket.description,
-        "priority": ticket.priority,
-        "status": "open",
-        "created_at": datetime.now().isoformat(timespec="seconds"),
-    }
-    # 保存工单记录
-    tickets.append(record)
-    _save_json(tickets_path, tickets)
-    return record
+    return db_create_ticket(
+        user_id=ticket.user_id,
+        issue_type=ticket.issue_type,
+        description=ticket.description,
+        order_id=ticket.order_id,
+        priority=ticket.priority,
+    )
 
 
-@app.get("/tickets") # 查看工单接口
+@app.get("/tickets") # 工单列表接口，直接查找SQLite数据库中的tickets表
 def list_tickets():
-    tickets = _load_json(DATA_DIR / "tickets.json")
-    return tickets if isinstance(tickets, list) else []
+    return db_list_tickets()
 
 
 @app.get("/policies") # 政策列表接口
