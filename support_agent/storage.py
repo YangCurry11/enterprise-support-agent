@@ -19,10 +19,10 @@ def _json_dumps(data: Any) -> str:
     把 Python 数据转成 JSON 字符串。
     ensure_ascii=False 表示中文正常保存。
     """
-    return json.dumps(data, ensure_ascii=False, indent=2)
+    return json.dumps(data, ensure_ascii=False, indent=2) 
 
 
-def _json_loads(text: str, default: Any):
+def _json_loads(text: str, default: Any): # 把数据库里的 JSON 字符串重新转回 Python 数据。
     """
     把 JSON 字符串转回 Python 数据。
     如果解析失败，就返回默认值。
@@ -43,12 +43,12 @@ def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
     """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = sqlite3.connect(db_path) # 连接数据库
+    conn.row_factory = sqlite3.Row # 让查询结果可以像字典一样读取
     return conn
 
 
-def init_db() -> None:
+def init_db() -> None: # 创建列表
     """
     初始化数据库表。
     如果表已经存在，不会重复创建。
