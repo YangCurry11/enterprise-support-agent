@@ -6,10 +6,13 @@ from pathlib import Path
 from typing import Optional # 表示某个字段可以有，也可以没有。
 import json
 
-from fastapi import FastAPI, HTTPException 
-from pydantic import BaseModel, Field  # 定义请求参数和响应数据的模型
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, ConfigDict, Field  # 定义请求参数和响应数据的模型
  
-from .config import DATA_DIR, POLICY_DIR
+from .agents import CustomerSupportAgent
+from .config import CORS_ORIGINS, DATA_DIR, POLICY_DIR
+from .storage import list_agent_runs
 
 from .business_db import (
     init_business_db,
@@ -25,6 +28,14 @@ app = FastAPI(
     title="Mock Enterprise Support API",
     description="模拟企业内部订单、用户、工单和政策接口，供 Agent 工具调用。",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(CORS_ORIGINS),
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 init_business_db()
@@ -52,10 +63,29 @@ class TicketCreate(BaseModel): # TicketCreate是一个接口请求数据模型
     order_id: Optional[str] = Field(default=None, description="订单号，可选")
     priority: str = Field(default="normal", description="优先级：low/normal/high")
 
+
+class AgentRunRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    user_input: str = Field(min_length=1, max_length=1000, description="用户问题")
+    user_id: str = Field(default="U1001", min_length=1, max_length=50, description="用户编号")
+
 # 健康检查接口 ：确认后端 API 是否正常启动
 @app.get("/")
 def health_check():
     return {"status": "ok", "service": "mock enterprise support api"}
+
+
+@app.post("/agent/run")
+def run_agent(payload: AgentRunRequest):
+    """Execute the complete support workflow for the Vue frontend."""
+    return CustomerSupportAgent().run(payload.user_input.strip(), user_id=payload.user_id.strip())
+
+
+@app.get("/agent/runs")
+def agent_runs(limit: int = 10):
+    if not 1 <= limit <= 50:
+        raise HTTPException(status_code=422, detail="limit 必须在 1 到 50 之间")
+    return {"runs": list_agent_runs(limit=limit)}
 
 
 @app.get("/orders/{order_id}")  #查询订单接口，直接查找SQLite数据库中的orders表

@@ -36,3 +36,6 @@ data/tickets.json
 *.bin
 
 data/*.db
+frontend/node_modules/
+frontend/dist/
+.pnpm-store/

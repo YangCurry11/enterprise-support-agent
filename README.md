@@ -10,7 +10,7 @@
 - 退款/物流/售后政策知识库
 - 本地轻量 RAG 检索
 - 多 Agent 流程：意图识别 → 工具调用/RAG → 工单处理 → 回复生成
-- Streamlit 可视化 Demo
+- Vue 3 + TypeScript + Vite 可视化工作台
 - Dify / Coze 可用的 OpenAPI 工具配置示例
 - 客服数据清洗与标注 JSONL 示例
 
@@ -37,12 +37,15 @@ enterprise_support_agent_project/
 │   └── training/            # 数据清洗/标注样例
 ├── api/
 │   └── openapi_tool_for_dify.yaml  # Dify/Coze HTTP 工具配置示例
+├── frontend/
+│   ├── src/App.vue          # Vue 页面状态与请求编排
+│   ├── src/api.ts           # 类型化 FastAPI 客户端
+│   └── src/components/      # 回复、链路与历史组件
 ├── docs/
 │   ├── architecture.md
 │   ├── dify_coze_setup.md
 │   ├── learning_path.md
 │   └── interview_notes.md
-├── app_streamlit.py         # Web Demo
 ├── main_cli.py              # 命令行 Demo
 └── requirements.txt
 ```
@@ -122,11 +125,16 @@ python main_cli.py "我的订单 ORD1001 到哪了？" --json
 
 ---
 
-### 2.4 运行 Streamlit 页面
+### 2.4 运行 Vue 3 前端
 
 ```bash
-streamlit run app_streamlit.py
+cd frontend
+pnpm install
+pnpm dev
 ```
+
+访问 `http://127.0.0.1:5173`。前端通过 `/agent/run` 调用完整 Agent 工作流，并从 `/agent/runs` 读取 SQLite 运行历史。
+如果 `pnpm` 不存在，请先安装 Node.js 20+，再执行 `npm install -g pnpm`。
 
 ---
 
@@ -141,7 +149,7 @@ streamlit run app_streamlit.py
 | RAG 知识库 | `rag.py`, `data/policies/` |
 | 数据清洗标注 | `scripts/prepare_sft_data.py`, `data/training/` |
 | 工单流程 | `TicketAgent`, `/tickets` API |
-| 简单对话系统开发 | `main_cli.py`, `app_streamlit.py` |
+| 前后端分离应用 | `frontend/`, `/agent/run`, `/agent/runs` |
 
 ---
 
@@ -153,8 +161,9 @@ streamlit run app_streamlit.py
 4. 看 `intent.py`，理解意图识别和槽位抽取。
 5. 看 `rag.py`，理解知识库检索流程。
 6. 看 `agents.py`，理解多 Agent 如何协作。
-7. 看 `api/openapi_tool_for_dify.yaml`，把 API 导入 Dify/Coze。
-8. 后续把规则版意图识别和回复生成替换为真实 LLM。
+7. 看 `frontend/src/api.ts`，理解 Vue 如何通过 HTTP 调用 Python Agent。
+8. 看 `api/openapi_tool_for_dify.yaml`，把 API 导入 Dify/Coze。
+9. 后续把规则版意图识别和回复生成替换为真实 LLM。
 
 ---
 
@@ -185,4 +194,25 @@ streamlit run app_streamlit.py
 3. 设计 `query_order`、`search_policy`、`create_ticket` 等 Agent 工具函数。
 4. 实现意图识别 Agent、订单查询 Agent、政策问答 Agent、工单 Agent 和回复生成 Agent。
 5. 提供 Dify/Coze 可导入的 OpenAPI 工具配置文件。
-6. 整理客服意图识别和工具调用标注数据，便于后续 SFT/LoRA 数据准备。
+6. 使用 Vue 3、TypeScript 与 Vite 构建前端工作台，展示意图、工具结果、RAG 证据、执行链路和 SQLite 历史记录。
+7. 整理客服意图识别和工具调用标注数据，便于后续 SFT/LoRA 数据准备。
+
+---
+
+## 7. 测试与构建
+
+后端测试：
+
+```bash
+python -m pytest -q
+```
+
+前端测试和生产构建：
+
+```bash
+cd frontend
+pnpm test
+pnpm build
+```
+
+`frontend/node_modules`、`frontend/dist`、本机 `.env` 和 SQLite 运行数据均不会提交到 Git。

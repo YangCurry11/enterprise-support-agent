@@ -10,6 +10,14 @@ DATA_DIR = BASE_DIR / "data"
 POLICY_DIR = DATA_DIR / "policies"
 BUSINESS_API_URL = os.getenv("BUSINESS_API_URL", "http://127.0.0.1:8000") # 业务 FastAPI 地址
 DEFAULT_USER_ID = os.getenv("DEFAULT_USER_ID", "U1001") # 默认用户编号
+CORS_ORIGINS = tuple(
+    origin.strip().rstrip("/")
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+)
 
 # __file__ 是当前文件的绝对路径，resolve() 是获取绝对路径，parent 是上级目录，两个即项目根目录
 # --------------以后接大模型会加---------------
