@@ -48,13 +48,14 @@ def classify_intent(text: str) -> IntentResult:
         return IntentResult(INTENT_COMPLAINT, order_id, 0.90, "命中投诉/强烈情绪关键词")
     if any(w in lower for w in human_words):
         return IntentResult(INTENT_HUMAN, order_id, 0.85, "用户要求人工或存在高风险情绪")
-    if order_id or any(w in lower for w in order_words + shipping_words):
-        # “未发货/到哪了”优先走订单查询，因为需要实时订单状态
-        return IntentResult(INTENT_ORDER, order_id, 0.82, "命中订单/物流查询关键词")
     if any(w in lower for w in refund_words):
         return IntentResult(INTENT_REFUND, order_id, 0.82, "命中退款/退货政策关键词")
     if any(w in lower for w in after_sales_words):
         return IntentResult(INTENT_AFTER_SALES, order_id, 0.82, "命中售后关键词")
+    if any(w in lower for w in ["政策", "规定", "多久发货", "发货时效"]) and any(w in lower for w in shipping_words):
+        return IntentResult(INTENT_SHIPPING, order_id, 0.82, "物流政策咨询")
+    if order_id or any(w in lower for w in order_words + shipping_words):
+        return IntentResult(INTENT_ORDER, order_id, 0.82, "命中订单/物流查询关键词")
     if len(text) <= 8 and any(w in lower for w in ["你好", "您好", "在吗"]):
         return IntentResult(INTENT_CHITCHAT, order_id, 0.7, "简单寒暄")
     return IntentResult(INTENT_UNKNOWN, order_id, 0.45, "未命中明确规则")

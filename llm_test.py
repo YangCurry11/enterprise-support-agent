@@ -1,4 +1,4 @@
-# 测试大模型能不能正常工作
+# 手动模型连通性示例：运行会发起真实请求并消耗额度，不属于自动化测试。
 from __future__ import annotations
 
 import os # 读取环境变量
@@ -15,8 +15,8 @@ def build_llm():
 
     需要在 .env 里配置：
     LLM_API_KEY=你的API Key
-    LLM_BASE_URL=https://api.deepseek.com
-    LLM_MODEL=deepseek-v4-flash
+    LLM_BASE_URL=供应商对应地域的兼容接口地址
+    LLM_MODEL=实际可调用的模型名称或固定版本
     """
 
     load_dotenv() # 读取项目根目录的.env文件

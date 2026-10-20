@@ -52,6 +52,8 @@ class AgentState: # 记录整个对话任务的状态
 class IntentAgent: # 意图识别
     def run(self, state: AgentState) -> AgentState:
         result = classify_intent(state.user_input)
+        from .llm_client import classify_with_llm
+        result = classify_with_llm(state.user_input, result)
         state.intent = result.intent
         state.intent_confidence = result.confidence
         state.intent_reason = result.reason
@@ -187,16 +189,8 @@ class ResponseAgent: # 回复生成
         return state
 
     def _summarize_by_intent(self, intent: str, query: str, docs: List[Dict[str, Any]]) -> str: # 根据意图和文档片段生成回复
-        joined = "\n".join(d["text"] for d in docs) 
-        if intent == INTENT_REFUND or "退" in query:
-            if "超过7天" in joined or "签收超过7天" in joined:
-                return "非质量问题商品通常仅支持签收后7天内无理由退货；如果超过7天但存在质量问题，可以申请售后检测，检测通过后再按规则处理退换或维修。"
-            return "退货/退款需要结合签收时间、商品状态和是否存在质量问题判断。请您提供签收时间和商品问题，我可以继续判断。"
-        if intent == INTENT_SHIPPING or any(w in query for w in ["物流", "发货", "快递"]):
-            return "现货商品通常付款后24小时内发货；如果物流超过预计时间未更新，建议创建物流异常工单并转人工跟进。"
-        if intent == INTENT_AFTER_SALES or any(w in query for w in ["坏", "维修", "少件"]):
-            return "商品损坏、无法使用、少件、错发等情况应创建售后工单，并附上照片、视频或问题描述，便于人工客服审核处理。"
-        return "请结合退款、物流、售后政策处理；若存在争议、投诉或复杂情况，应转人工。"
+        excerpts = "\n".join(f"[{index + 1}] {doc['text'][:500]}" for index, doc in enumerate(docs))
+        return "检索到以下相关政策片段，是否适用还需要结合您的订单和具体情况确认：\n" + excerpts
 
 # LLM 回复 Agent
 class LLMResponseAgent(ResponseAgent): # LLMResponseAgent 继承 ResponseAgent
@@ -262,7 +256,7 @@ class LLMResponseAgent(ResponseAgent): # LLMResponseAgent 继承 ResponseAgent
             # 5. 大模型失败时，保留原模板回复
             state.add_step("LLMResponseAgent", {
                 "mode": "fallback_template",
-                "error": str(exc),
+                "error": "llm_unavailable",
                 "template_reply": template_reply,
             })
             return state
@@ -271,65 +265,16 @@ class CustomerSupportAgent: # 客户支持代理：总控制器
     """多 Agent 编排器：意图识别 -> 工具/知识库 -> 工单 -> 回复。"""
 
     def __init__(self, tools: SupportTools | None = None): # 初始化agent
-        self.tools = tools or SupportTools() # 如果没有传入工具，则使用默认工具
-        self.intent_agent = IntentAgent()
-        self.order_agent = OrderAgent(self.tools)
-        self.policy_agent = PolicyAgent(self.tools)
-        self.ticket_agent = TicketAgent(self.tools)
-        self.response_agent = LLMResponseAgent()
+        self.tools = tools
 
     def run(self, user_input: str, user_id: str = DEFAULT_USER_ID) -> Dict[str, Any]:
-        start_time = time.perf_counter() # 记录开始时间
-
-        state = AgentState(user_input=user_input, user_id=user_id)
-
-        state = self.intent_agent.run(state)
-
-        if state.intent == INTENT_ORDER:
-            state = self.order_agent.run(state)
-
-        elif state.intent in [INTENT_REFUND, INTENT_SHIPPING, INTENT_AFTER_SALES, INTENT_UNKNOWN]:
-            state = self.policy_agent.run(state)
-
-            if state.intent == INTENT_AFTER_SALES:
-                state = self.ticket_agent.run(
-                    state,
-                    issue_type="after_sales",
-                    priority="normal",
-                )
-
-        elif state.intent == INTENT_COMPLAINT:
-            state.need_human = True
-            state = self.ticket_agent.run(
-                state,
-                issue_type="complaint",
-                priority="high",
-            )
-
-        elif state.intent == INTENT_HUMAN:
-            state.need_human = True
-            state = self.ticket_agent.run(
-                state,
-                issue_type="human_escalation",
-                priority="high",
-            )
-
-        state = self.response_agent.run(state)
-
-        result = state.to_dict()
-
-        latency_ms = int((time.perf_counter() - start_time) * 1000) # 计算耗时
-
-        try:
-            # 保存日志
-            from .storage import save_agent_run
-
-            run_id = save_agent_run(result, latency_ms=latency_ms)
-            result["run_id"] = run_id
-            result["latency_ms"] = latency_ms
-
-        except Exception as exc:
-            result["storage_error"] = str(exc)
-            result["latency_ms"] = latency_ms
-
-        return result
+        # CLI compatibility uses the same checkpointed workflow as HTTP requests.
+        import uuid
+        from .auth import Principal
+        from .config import DATA_DIR
+        from . import business_db
+        from .runtime import WorkflowService
+        business_db.seed_business_db_from_json(overwrite=False)
+        kwargs = {"tools_factory": lambda _user, _run: self.tools} if self.tools else {}
+        return WorkflowService(DATA_DIR, **kwargs).start(
+            user_input, user_id, str(uuid.uuid4()), Principal(user_id, "customer"))

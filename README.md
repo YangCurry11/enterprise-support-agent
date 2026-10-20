@@ -1,218 +1,89 @@
-# 企业客服工单多 Agent 系统
+# 企业客服多 Agent 系统 v0.2
 
-这是一个面向 **AI Agent 实习 / 大模型应用开发 / RAG 工程** 的练习项目。
+Vue 3 + TypeScript、FastAPI、LangGraph、SQLite 组成的客服工作流系统。支持订单查询、政策问答、补充信息、人工审核、幂等建单、故障恢复和运行审计。
 
-项目模拟电商售后客服场景，实现：
+当前业务数据为本机测试数据，架构支持单实例低并发试点。完整升级说明、学习顺序和面试表述见 [docs/UPGRADE_V02.md](docs/UPGRADE_V02.md)。
 
-- 订单查询 API
-- 用户信息 API
-- 工单创建 API
-- 退款/物流/售后政策知识库
-- 本地轻量 RAG 检索
-- 多 Agent 流程：意图识别 → 工具调用/RAG → 工单处理 → 回复生成
-- Vue 3 + TypeScript + Vite 可视化工作台
-- Dify / Coze 可用的 OpenAPI 工具配置示例
-- 客服数据清洗与标注 JSONL 示例
+## 启动后端（Windows PowerShell）
 
-> 默认不需要大模型 API Key 也能运行。这样你可以先快速理解 Agent 工程结构，再逐步替换为真实 LLM、LangChain、LangGraph、Dify/Coze。
+LangGraph 已接入默认执行链路，不是待实现计划：`POST /agent/run → WorkflowService → build_graph → StateGraph`。保留的 `CustomerSupportAgent.run()` 也是调用该链路的 CLI 兼容入口。
 
----
+在 VS Code 中打开整个“企业客服多Agent系统”文件夹，然后打开终端：
 
-## 1. 项目结构
-
-```text
-enterprise_support_agent_project/
-├── support_agent/
-│   ├── mock_api.py          # FastAPI 模拟企业内部订单/用户/工单 API
-│   ├── api_client.py        # Python 调用业务 API
-│   ├── intent.py            # 规则版意图识别，可替换为 LLM
-│   ├── rag.py               # 本地轻量 RAG 检索
-│   ├── tools.py             # Agent 可调用工具集合
-│   └── agents.py            # 多 Agent 编排逻辑
-├── data/
-│   ├── orders.json          # 模拟订单数据
-│   ├── users.json           # 模拟用户数据
-│   ├── tickets.json         # 工单数据
-│   ├── policies/            # 知识库文档
-│   └── training/            # 数据清洗/标注样例
-├── api/
-│   └── openapi_tool_for_dify.yaml  # Dify/Coze HTTP 工具配置示例
-├── frontend/
-│   ├── src/App.vue          # Vue 页面状态与请求编排
-│   ├── src/api.ts           # 类型化 FastAPI 客户端
-│   └── src/components/      # 回复、链路与历史组件
-├── docs/
-│   ├── architecture.md
-│   ├── dify_coze_setup.md
-│   ├── learning_path.md
-│   └── interview_notes.md
-├── main_cli.py              # 命令行 Demo
-└── requirements.txt
+```powershell
+# 仅首次创建；已有 .venv 时跳过这一行，不用重新安装环境
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn support_agent.app:app --reload --host 127.0.0.1 --port 8000
 ```
 
----
+后端终端保持运行。API 文档：<http://127.0.0.1:8000/docs>。
 
-## 2. 快速启动
+项目包含 .env.example；如需自定义模型或凭证，复制成 .env 再修改。不开模型也能运行所有工作流测试。模型配置为 LLM_API_KEY、LLM_BASE_URL、LLM_MODEL；LLM_INTENT_ENABLED=true 可启用结构化模型分类，供应商须支持相应工具调用协议。
 
-### 2.1 创建环境
+已有 .env 时保留其他配置，仅修改对应项。密钥只放后端环境，不能放进 Vue 的 VITE_* 变量；不要提交 .env、实际凭证、运行数据库或模型检查点。配置供应商不等于已联调，页面可能返回模板兜底；真实调用应另外核对供应商记录和返回结果。
 
-```bash
-cd enterprise_support_agent_project
-python -m venv venv
-```
+建议按 [当前学习路线](docs/learning_path.md) 阅读，再参考 [架构说明](docs/architecture.md) 和 [面试说明](docs/interview_notes.md)。[Dify/Coze 接入](docs/dify_coze_setup.md) 是可选适配，不能绕过人工审核。
 
-Windows：
+## 启动前端
 
-```bash
-venv\Scripts\activate
-```
+先安装 Node.js 24 LTS。在第二个终端执行：
 
-Mac / Linux：
-
-```bash
-source venv/bin/activate
-```
-
-安装依赖：
-
-```bash
-pip install -r requirements.txt
-```
-
----
-
-### 2.2 启动模拟企业 API
-
-打开第一个终端：
-
-```bash
-uvicorn support_agent.mock_api:app --reload --port 8000
-```
-
-浏览器访问：
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-你会看到 FastAPI 自动生成的接口文档。
-
----
-
-### 2.3 运行命令行 Agent
-
-打开第二个终端：
-
-```bash
-python main_cli.py "我的订单 ORD1001 到哪了？"
-```
-
-试试这些问题：
-
-```bash
-python main_cli.py "ORD1002 怎么还没发货？"
-python main_cli.py "我买了10天的耳机还能退吗？"
-python main_cli.py "商品坏了，无法使用，帮我处理一下"
-python main_cli.py "我要投诉，你们服务太差了"
-python main_cli.py "我要人工客服"
-```
-
-如果想看完整状态：
-
-```bash
-python main_cli.py "我的订单 ORD1001 到哪了？" --json
-```
-
----
-
-### 2.4 运行 Vue 3 前端
-
-```bash
+```powershell
 cd frontend
-pnpm install
-pnpm dev
+npm.cmd install -g pnpm@11.19.0
+pnpm.cmd install --frozen-lockfile
+pnpm.cmd dev
 ```
 
-访问 `http://127.0.0.1:5173`。前端通过 `/agent/run` 调用完整 Agent 工作流，并从 `/agent/runs` 读取 SQLite 运行历史。
-如果 `pnpm` 不存在，请先安装 Node.js 20+，再执行 `npm install -g pnpm`。
+浏览器打开 <http://127.0.0.1:5173>。使用 `.cmd` 可以避免 PowerShell 对 npm.ps1 / pnpm.ps1 的执行策略限制。
 
----
+## 验证升级功能
 
-## 3. 这个项目对应哪些岗位能力
+开发模式提供两种公开测试凭证，只用于本机测试：
 
-| 岗位要求 | 项目对应模块 |
-|---|---|
-| Python 基础编程 | `api_client.py`, `tools.py`, `agents.py` |
-| API 调用 | `mock_api.py`, `api_client.py` |
-| Dify/Coze 工具配置 | `api/openapi_tool_for_dify.yaml` |
-| Agent 角色配置 | `IntentAgent`, `OrderAgent`, `PolicyAgent`, `TicketAgent`, `ResponseAgent` |
-| RAG 知识库 | `rag.py`, `data/policies/` |
-| 数据清洗标注 | `scripts/prepare_sft_data.py`, `data/training/` |
-| 工单流程 | `TicketAgent`, `/tickets` API |
-| 前后端分离应用 | `frontend/`, `/agent/run`, `/agent/runs` |
+| 凭证 | 身份 | 操作 |
+|---|---|---|
+| dev-customer-u1001 | U1001 / customer | 查询自己的订单、发起请求、补充订单号 |
+| dev-support-reviewer | S1001 / support | 从运行历史打开请求、审核通过或拒绝 |
 
----
+1. 客户身份查询“ORD1001 到哪了”，应返回本人的物流信息。
+2. 查询“ORD1002 到哪了”，应拒绝透露其他用户的订单。
+3. 输入“我的订单到哪了”，应进入待补充状态；提交 ORD1001 后继续。
+4. 输入“我要投诉”，应进入待审核状态，此时没有创建工单。
+5. 在访问凭证中换为客服凭证并验证身份，在历史记录打开该请求。
+6. 选择通过后创建高优先级工单；选择拒绝则不创建工单。
+7. 可以在审核前重启后端，再打开同一次请求，检查等待状态仍然保留。
 
-## 4. 建议学习顺序
+## 测试
 
-1. 先运行 `mock_api.py`，理解 API 是什么。
-2. 看 `api_client.py`，理解 Python 如何调用 API。
-3. 看 `tools.py`，理解 Agent 的工具函数怎么封装。
-4. 看 `intent.py`，理解意图识别和槽位抽取。
-5. 看 `rag.py`，理解知识库检索流程。
-6. 看 `agents.py`，理解多 Agent 如何协作。
-7. 看 `frontend/src/api.ts`，理解 Vue 如何通过 HTTP 调用 Python Agent。
-8. 看 `api/openapi_tool_for_dify.yaml`，把 API 导入 Dify/Coze。
-9. 后续把规则版意图识别和回复生成替换为真实 LLM。
-
----
-
-## 5. 下一步升级方向
-
-- 用 LangChain 替换 `rag.py` 的轻量检索
-- 用 Chroma / FAISS 替换 TF-IDF
-- 用真实 LLM 做意图识别和回复生成
-- 用 OpenAI / DeepSeek / 通义千问的 Tool Calling 替换规则分支
-- 用 LangGraph 重写 `CustomerSupportAgent` 工作流
-- 增加日志、评估集、失败重试和人工审核
-- 将数据存储从 JSON 文件升级到 SQLite / PostgreSQL
-
----
-
-## 6. 简历写法
-
-项目名称：**基于 RAG 与 Tool Calling 的企业客服多 Agent 系统**
-
-项目描述：
-
-> 设计并实现一个面向电商售后场景的智能客服 Agent 系统，支持订单查询、退款政策问答、售后工单创建和人工转接。项目结合 FastAPI 业务接口、RAG 知识库、工具调用和多 Agent 工作流，实现从用户问题理解、知识检索、业务工具调用到最终回复生成的自动化流程。
-
-项目亮点：
-
-1. 使用 FastAPI 模拟订单查询、用户信息、工单创建等企业内部接口。
-2. 基于本地政策文档构建 RAG 知识库，实现退款、物流、售后政策检索。
-3. 设计 `query_order`、`search_policy`、`create_ticket` 等 Agent 工具函数。
-4. 实现意图识别 Agent、订单查询 Agent、政策问答 Agent、工单 Agent 和回复生成 Agent。
-5. 提供 Dify/Coze 可导入的 OpenAPI 工具配置文件。
-6. 使用 Vue 3、TypeScript 与 Vite 构建前端工作台，展示意图、工具结果、RAG 证据、执行链路和 SQLite 历史记录。
-7. 整理客服意图识别和工具调用标注数据，便于后续 SFT/LoRA 数据准备。
-
----
-
-## 7. 测试与构建
-
-后端测试：
-
-```bash
-python -m pytest -q
-```
-
-前端测试和生产构建：
-
-```bash
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pip check
 cd frontend
-pnpm test
-pnpm build
+pnpm.cmd test
+pnpm.cmd build
 ```
 
-`frontend/node_modules`、`frontend/dist`、本机 `.env` 和 SQLite 运行数据均不会提交到 Git。
+测试覆盖权限、订单归属、审核拒绝、检查点恢复、重复请求、重复建单、模型降级和前端审核交互。数据库测试使用临时目录，不修改业务数据库。
+
+本次本地发布检查结果及未验证范围见 [验证记录](docs/VERIFICATION_20261020.md)。GitHub Actions 需以仓库中的实际运行结果为准。
+
+## 数据与兼容性
+
+已有 business.db 保留，并进行新增列的迁移。原 agent_logs.db 保留，但旧历史不自动导入新工作流。新记录保存在 workflow_runs.db，检查点保存在 workflow_checkpoints.db。
+
+旧 `support_agent.mock_api:app` 名称仍指向新应用，原启动命令可继续使用。API 请求现在必须携带身份凭证和 request_id；旧 Dify/Coze 调用配置需要更新。
+
+## 部署
+
+已提供 Dockerfile 和 GitHub Actions。Docker 容器默认 SUPPORT_ENV=production，必须配置私有 SUPPORT_AUTH_TOKENS；不会启用公开开发凭证。数据目录需挂载持久卷。
+
+```powershell
+docker build -t enterprise-support-agent:0.2 .
+docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/var/lib/support enterprise-support-agent:0.2
+```
+
+.env.production 至少设置 SUPPORT_ENV=production 和 SUPPORT_AUTH_TOKENS（格式见 .env.example）。不要提交实际凭证。
+
+当前只能启动一个 API worker。多实例需配套实现 PostgreSQL 检查点和分布式调度；对外上线前需接入企业身份系统和真实业务适配器，并进行并发、恢复、业务评测与运维验收。

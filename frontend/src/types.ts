@@ -10,7 +10,9 @@ export interface RetrievedDocument {
 }
 
 export interface AgentResult {
-  run_id?: string;
+  run_id: string;
+  status: "running" | "failed" | "completed" | "awaiting_input" | "awaiting_review";
+  pending: { kind: "order_id" | "approval"; message: string }[];
   user_id: string;
   user_input: string;
   intent: string;
@@ -44,4 +46,7 @@ export interface AgentHistoryItem {
   retrieved_docs: RetrievedDocument[];
   latency_ms: number;
   created_at: string;
+  status: AgentResult["status"];
 }
+
+export interface Identity { user_id: string; role: "customer" | "support" }

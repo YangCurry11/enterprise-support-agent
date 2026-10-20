@@ -36,6 +36,24 @@ data/tickets.json
 *.bin
 
 data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.sqlite*
 frontend/node_modules/
 frontend/dist/
 .pnpm-store/
+_upgrade_backups/
+*.tsbuildinfo
+
+# Local interview preparation exports (not public project documentation)
+docs/面试准备_*/
+
+# Private credentials and database files regardless of their directory
+*.pem
+*.key
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*

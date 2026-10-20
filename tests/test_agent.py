@@ -14,3 +14,11 @@ def test_intent_order():
 def test_intent_refund():
     result = classify_intent("我买了10天还能退吗")
     assert result.intent == INTENT_REFUND
+
+
+def test_order_number_does_not_override_refund_intent():
+    assert classify_intent("ORD1001 我想退货").intent == INTENT_REFUND
+
+
+def test_shipping_policy_is_reachable():
+    assert classify_intent("你们的发货时效规定是什么").intent == "shipping_policy"

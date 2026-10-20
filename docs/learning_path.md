@@ -1,71 +1,53 @@
-# 基于本项目的快速学习路线
+# 基于当前 v0.2 的学习路线
 
-你有 AI 基础，建议按“先跑通，再替换，再优化”的方式学。
+先跑通一条请求，再读代码、解释故障场景。当前页面是 Vue 3，不需要运行 Streamlit；LangGraph 已落地，不需要先重写 CustomerSupportAgent。
 
-## 第 1 天：跑通项目
+## 第 1 步：启动并区分三个入口
 
-- 启动 FastAPI
-- 运行 CLI 示例
-- 运行 Streamlit 页面
-- 看懂 `mock_api.py` 和 `main_cli.py`
+按 [README](../README.md) 启动 `support_agent.app:app` 和 Vue 工作台。使用本机开发身份查询 `ORD1001`，再尝试 `ORD1002`，观察客户权限边界。
 
-## 第 2 天：理解工具调用
+- 网页入口：`frontend/src/App.vue` → `frontend/src/api.ts`。
+- HTTP 入口：`support_agent/app.py` 的 `/agent/run`。
+- CLI 入口：`main_cli.py` → `CustomerSupportAgent.run()`，同样调用 WorkflowService。
 
-重点看：
+目标：能解释“按钮按下后，参数和身份怎样传到后端”。
 
-- `api_client.py`
-- `tools.py`
-- `agents.py` 里的 `OrderAgent` 和 `TicketAgent`
+## 第 2 步：理解身份与请求登记
 
-目标：知道 Agent 为什么要调用 API，而不是直接回答。
+读 `auth.py`、`app.py`、`runtime.py` 的 `start`。区分用户输入中的 user_id 与服务器身份；理解 request_id、输入指纹、run_id，以及 401/403/404/409 的意义。
 
-## 第 3 天：理解 RAG
+目标：知道请求去重不等于工单幂等，也不能靠前端按钮实现权限控制。
 
-重点看：
+## 第 3 步：理解已接入的 LangGraph
 
-- `data/policies/`
-- `rag.py`
-- `PolicyAgent`
+读 `workflow.py` 的 `build_graph` 和条件边，画出订单、政策、售后三条实际路径；再读 `runtime.py` 的 `graph`、`invoke`、`render`。
 
-目标：知道知识库问答的流程：文档 → 切分 → 检索 → 依据 → 回复。
+目标：解释 StateGraph、节点、条件边、状态、thread_id 和 SqliteSaver。不是每个节点都调用一个 LLM。
 
-## 第 4 天：接入 Dify / Coze
+## 第 4 步：亲手做中断与恢复
 
-- 导入 `api/openapi_tool_for_dify.yaml`
-- 上传政策文档作为知识库
-- 配置一个客服 Agent 原型
+输入“我的订单到哪了”，看到 awaiting_input 后补充 ORD1001；输入“我要投诉”，看到 awaiting_review 后切换客服身份审核。审核前可以重启后端，再打开相同 run，观察检查点仍可读取。
 
-目标：满足实习岗位里的“平台配置、工具调用基础设置”。
+读 `clarify`、`review` 与 `runtime.resume`。目标：解释 interrupt 与 Command 恢复的是同一个业务 run，而不是任意聊天的长期记忆。
 
-## 第 5-7 天：升级为 LLM 版
+## 第 5 步：理解工具与防重复建单
 
-你可以把：
+读 `scoped_tools.py`、`business_db.py` 和 `tests/test_workflow.py`。重点解释客户归属校验、参数化 SQL、事务、幂等键，以及“写入成功但检查点未保存”的故障注入测试。
 
-- `intent.py` 的规则分类替换为 LLM JSON 输出
-- `ResponseAgent` 的规则回复替换为 LLM 回复生成
-- `rag.py` 替换成 LangChain + Chroma
+`tools.py` / `api_client.py` / `storage.py` 是旧适配器或旧日志层，不作为当前默认路径的学习入口。
 
-## 第 2 周：LangChain / LangGraph 重构
+## 第 6 步：再学检索与模型
 
-- 用 LangChain 实现 RAG
-- 用 LangGraph 实现状态流转
-- 增加失败重试、人工审核节点、日志记录
+读 `rag.py`、`data/policies/`、`PolicyAgent`，理解字符级 TF-IDF、查询扩展、Top-K 和证据来源。接着读 `LLMResponseAgent`、`llm_client.py` 和 `IntentDecision`，区分回复增强、规则分类、可选模型分类和异常回退。
 
-## 第 3 周：数据清洗标注
+密钥只放本地后端环境；先验证小规模真实调用，再测试分类，不能把模板答案误认为模型调用成功。真实调用会消耗供应商额度，不属于默认测试套件。
 
-运行：
+## 第 7 步：测试后练习面试
 
-```bash
-python scripts/prepare_sft_data.py
-```
+先跑后端 pytest、pip check，再跑前端 test/build。每个重要说法都对应函数和测试：权限、审核拒绝、服务重建恢复、工单幂等、模型失败保留模板。
 
-然后扩展到 300 条客服问法，字段包括：
+面试按“业务问题 → 执行链路 → 风险 → 实现 → 验证 → 限制”来讲，不把未完成的生产接入或模型评测写成成果。
 
-- user_input
-- intent
-- required_tool
-- slots
-- response_type
-- standard_answer
+## 可选：外部平台与后续升级
 
-这对应岗位中的 SFT/LoRA 数据清洗和标注辅助工作。
+Dify/Coze 是可选集成，先读 [安全接入说明](dify_coze_setup.md)，不要把审核权限交给自主模型。Embedding/rerank、多实例、SSO 和真实业务接入仍属于后续工作；SFT 数据示例不等于已经训练模型。

@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .config import DATA_DIR
+from .config import DATA_DIR, BASE_DIR
 
 
 # SQLite 业务数据库文件位置
@@ -28,21 +29,20 @@ def _load_json(path: Path, default: Any) -> Any:
         return json.load(file)
 
 
-def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
+@contextmanager
+def get_connection(db_path: Optional[Path] = None):
     """
     创建并返回 SQLite 数据库连接。
 
     SQLite 不需要单独启动服务。
     如果 business.db 不存在，会自动创建。
     """
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    conn = sqlite3.connect(str(db_path))
-
-    # 让查询结果可以像字典一样使用
-    conn.row_factory = sqlite3.Row
-
-    return conn
+    target = db_path or DB_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(str(target), timeout=10)) as conn:
+        conn.row_factory = sqlite3.Row
+        with conn:
+            yield conn
 
 
 def init_business_db() -> None:
@@ -100,6 +100,12 @@ def init_business_db() -> None:
             """
         )
 
+        # Additive migration: preserve existing orders, users and tickets.
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(tickets)")}
+        if "idempotency_key" not in columns:
+            conn.execute("ALTER TABLE tickets ADD COLUMN idempotency_key TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ticket_idempotency ON tickets(idempotency_key)")
+
         conn.commit()
 
 
@@ -126,8 +132,9 @@ def seed_business_db_from_json(overwrite: bool = False) -> None:
     """
     init_business_db()
 
-    users_data = _load_json(DATA_DIR / "users.json", {})
-    orders_data = _load_json(DATA_DIR / "orders.json", {})
+    seed_dir = BASE_DIR / "data"
+    users_data = _load_json(seed_dir / "users.json", {})
+    orders_data = _load_json(seed_dir / "orders.json", {})
     tickets_data = _load_json(DATA_DIR / "tickets.json", [])
 
     with get_connection() as conn:
@@ -286,6 +293,7 @@ def create_ticket(
     description: str,
     order_id: Optional[str] = None,
     priority: str = "normal",
+    idempotency_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     创建一条新工单，并写入 SQLite。
@@ -311,6 +319,16 @@ def create_ticket(
     }
 
     with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if idempotency_key:
+            existing = conn.execute("SELECT * FROM tickets WHERE idempotency_key = ?", (idempotency_key,)).fetchone()
+            if existing:
+                previous = dict(existing)
+                for key in ("user_id", "order_id", "issue_type", "description", "priority"):
+                    if previous[key] != record[key]:
+                        raise ValueError("Idempotency key reused with different ticket payload")
+                previous.pop("idempotency_key", None)
+                return previous
         conn.execute(
             """
             INSERT INTO tickets (
@@ -321,9 +339,10 @@ def create_ticket(
                 description,
                 priority,
                 status,
-                created_at
+                created_at,
+                idempotency_key
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record["ticket_id"],
@@ -334,6 +353,7 @@ def create_ticket(
                 record["priority"],
                 record["status"],
                 record["created_at"],
+                idempotency_key,
             ),
         )
 
@@ -342,7 +362,7 @@ def create_ticket(
     return record
 
 
-def list_tickets(limit: int = 100) -> List[Dict[str, Any]]:
+def list_tickets(limit: int = 100, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     查询最近的工单。
     """
@@ -350,13 +370,10 @@ def list_tickets(limit: int = 100) -> List[Dict[str, Any]]:
 
     with get_connection() as conn:
         rows = conn.execute(
-            """
-            SELECT *
-            FROM tickets
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (limit,),
+            "SELECT ticket_id,user_id,order_id,issue_type,description,priority,status,created_at FROM tickets "
+            + ("WHERE user_id = ? " if user_id else "")
+            + "ORDER BY created_at DESC LIMIT ?",
+            (user_id, limit) if user_id else (limit,),
         ).fetchall()
 
     return [dict(row) for row in rows]

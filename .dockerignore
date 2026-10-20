@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+.venv
+venv
+frontend/node_modules
+frontend/dist
+data/*.db*
+data/tickets.json
+__pycache__
+.pytest_cache

@@ -1,2 +1,2 @@
 @echo off
-uvicorn support_agent.mock_api:app --reload --port 8000
+python -m uvicorn support_agent.app:app --reload --host 127.0.0.1 --port 8000

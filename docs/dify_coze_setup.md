@@ -1,69 +1,36 @@
-# Dify / Coze 接入说明
+# Dify / Coze 接入边界（v0.2）
 
-## 1. 先启动业务 API
+本项目默认使用 Vue 工作台和后端 LangGraph；Dify/Coze 是可选适配目标，本说明不表示已完成这些平台的实测验收。
 
-```bash
-uvicorn support_agent.mock_api:app --reload --port 8000
-```
+## 1. 后端与网络
 
-确认接口可访问：
+按 [README](../README.md) 启动 `support_agent.app:app`，API 文档在 `http://127.0.0.1:8000/docs`。平台所在容器或云端的 localhost 不是本机后端；应使用受控网络连接，不要为演示直接把公开开发凭证和服务暴露到公网。
 
-```text
-http://127.0.0.1:8000/docs
-```
+## 2. 导入契约与凭证
 
-## 2. 导入 HTTP 工具
+`api/openapi_tool_for_dify.yaml` 是完整 API 契约（JSON 也是合法 YAML），包括运行、恢复、审核和业务读接口。平台的 OpenAPI 3.1 支持程度需实际验证；导入后应精简为该集成真正需要的操作，而不是全部交给模型。
 
-项目提供了 OpenAPI 文件：
+业务请求必须携带服务端管理的 `Authorization: Bearer ...`。按客户授权选择凭证；平台用户不能自行提交角色或覆盖服务器身份。
+
+## 3. 正确的写操作链路
 
 ```text
-api/openapi_tool_for_dify.yaml
+提交业务请求 → POST /agent/run
+  ├─ completed：展示后端结果
+  ├─ awaiting_input：收集订单号，POST /agent/runs/{run_id}/resume
+  └─ awaiting_review：交由可信客服工作台审核，不能由模型自行批准
 ```
 
-你可以在 Dify / Coze 中创建 HTTP 工具，导入这个 OpenAPI 文件。
+新请求必须带 UUID request_id；相同操作重试沿用原编号，不同输入换新编号。保存返回的 run_id，用于查看和继续同一次运行。
 
-工具包括：
+当前没有可绕过审核的 `POST /tickets` 建单接口。`/agent/runs/{run_id}/review` 只供可信客服身份使用，不要把审核员密钥或该工具提供给自主 Agent。审核通过后，由服务端的 ticket 节点执行幂等建单。
 
-- `queryOrder`：查询订单
-- `queryUser`：查询用户
-- `createTicket`：创建工单
+## 4. 回复与知识库
 
-## 3. 建议 Agent 提示词
+优先展示后端 final_response、status 和检索依据。若平台另设一个模型改写答案，要避免把“待审核”“被拒绝”“未建单”改写成成功承诺，也不能把检索不到的政策补成事实。
 
-```text
-你是企业售后智能客服 Agent。
-你的职责是帮助用户查询订单、解释退款政策、处理物流和售后问题。
+`data/policies/` 为模拟政策。另行上传平台知识库会形成独立检索链路，需要单独测量并明确文档版本；不能将其评测结果当作当前本地 TF-IDF 的结果。
 
-规则：
-1. 用户提供订单号时，优先调用 queryOrder 查询订单。
-2. 用户咨询退款、退货、物流、售后政策时，优先检索知识库。
-3. 用户投诉、要求人工、涉及赔偿或情绪强烈时，调用 createTicket 创建高优先级工单。
-4. 不要编造订单状态、物流单号、退款政策。
-5. 如果信息不足，先向用户追问必要信息。
-```
+## 5. 上线前验证
 
-## 4. 建议知识库文档
-
-将以下文件上传到 Dify / Coze 知识库：
-
-```text
-data/policies/refund_policy.md
-data/policies/shipping_policy.md
-data/policies/after_sales_policy.md
-data/policies/membership_policy.md
-```
-
-## 5. 工作流建议
-
-```text
-开始
-  ↓
-LLM 节点：识别用户意图和订单号
-  ↓
-条件分支：
-  ├─ 订单查询 → HTTP 工具 queryOrder
-  ├─ 政策咨询 → 知识库检索
-  ├─ 投诉/人工 → HTTP 工具 createTicket
-  ↓
-LLM 节点：生成最终回复
-```
+至少验证：客户隔离、未授权失败、重复请求、补充订单号、审核通过/拒绝、工单去重、网络中断恢复，以及平台不会向最终用户暴露密钥或内部敏感响应。接口细节见 [api/README](../api/README.md)。
