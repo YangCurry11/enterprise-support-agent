@@ -1,93 +1,353 @@
-# 企业客服多 Agent 系统：ServiceFlow 第一阶段升级
+# ServiceFlow · 企业客服多 Agent 系统
 
-Vue 3 + TypeScript、FastAPI、LangGraph、SQLite 组成的客服工作流系统。支持订单查询、政策问答、补充信息、人工审核、幂等建单、故障恢复和运行审计。
+[![CI](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml)
+[运行指南](docs/PHASE1_UPGRADE.md) · [多轮架构](docs/MULTI_TURN_ARCHITECTURE.md) · [评测说明](docs/EVALUATION_GUIDE.md) · [验证记录](docs/VERIFICATION_PHASE1_20261022.md)
 
-现已新增连续聊天、独立 conversation_id、SQLite 会话/消息持久化、有界订单上下文及默认离线效果评测。run_id 仍是 LangGraph thread_id，旧工作台与 API 保留。优先阅读 [运行与第一阶段精讲](docs/PHASE1_UPGRADE.md)、[多轮架构](docs/MULTI_TURN_ARCHITECTURE.md)、[评测指南](docs/EVALUATION_GUIDE.md)。
+一个基于 **Vue 3 + TypeScript、FastAPI、LangGraph 与 SQLite** 的客服工作流项目：在同一会话中查询订单、追问政策、申请售后，并将需要业务写入的请求交给人工审核。
 
-评测集为 AI 辅助模拟开发标注，尚未独立人工复核，不是实际企业业务数据；本轮未执行真实千问端到端评测。
+项目的重点不只是“生成一句回复”，而是把**会话记忆、工具权限、人工审核、幂等建单和故障恢复**接到同一条可追踪的处理链路。
 
-当前业务数据为本机测试数据，架构支持单实例低并发试点。完整升级说明、学习顺序和面试表述见 [docs/UPGRADE_V02.md](docs/UPGRADE_V02.md)。
+> 当前使用模拟订单、用户与政策数据，适合本机学习和受控单实例试点。截图来自当前版本的真实前后端操作，不是设计稿；展示时关闭模型 API，使用规则分类与模板回复。系统不会执行真实退款或赔偿。
 
-## 启动后端（Windows PowerShell）
+## 导航
 
-LangGraph 已接入默认执行链路，不是待实现计划：`POST /agent/run → WorkflowService → build_graph → StateGraph`。保留的 `CustomerSupportAgent.run()` 也是调用该链路的 CLI 兼容入口。
+<details>
+<summary>展开阅读目录</summary>
 
-在 VS Code 中打开整个“企业客服多Agent系统”文件夹，然后打开终端：
+- [页面展示](#页面展示)
+- [项目亮点](#项目亮点)
+- [三轮对话实操](#三轮对话实操)
+- [系统架构](#系统架构)
+- [快速开始](#快速开始)
+- [评测与测试](#评测与测试)
+- [项目结构](#项目结构)
+- [接口与配置](#接口与配置)
+- [部署边界](#部署边界)
+- [学习文档](#学习文档)
 
-```powershell
-# 仅首次创建；已有 .venv 时跳过这一行，不用重新安装环境
+</details>
+
+## 页面展示
+
+### 连续聊天与运行详情
+
+左侧管理历史会话，中间连续提问，右侧查看单次运行的状态、工具数据、政策依据和 Agent 执行轨迹。每条助手消息都关联真实的 run_id，详情面板可以收起。
+
+![订单查询工作台：会话列表、连续消息与单次运行详情](docs/screenshots/01-order-workspace.jpg)
+
+*客户 U1001 查询自己的 ORD1001。页面返回模拟物流信息，并保留可追踪的运行记录。点击图片可查看原图。*
+
+### 政策问答与来源溯源
+
+追问“那它可以退款吗？”时，系统关联本会话已确认的订单，重新校验访问权限，再检索退款政策。回复展示来源文件；运行详情可查看片段与检索分数。
+
+![退款追问：关联原订单并展示退款政策来源](docs/screenshots/02-policy-sources.jpg)
+
+*政策检索使用当前项目的中文字符 n-gram TF-IDF；相似度分数不代表答案置信度，也不是“自动批准退款”。*
+
+## 项目亮点
+
+| 能力 | 当前实现 | 为什么需要 |
+|---|---|---|
+| 多轮会话 | 独立 conversation_id；SQLite 保存消息、会话归属及关联运行 | 刷新后能恢复聊天，不依赖前端临时数组 |
+| 有界上下文 | 最近消息窗口、字符预算、服务端确认订单 | 理解“那它”这类业务追问，避免无限拼接历史 |
+| 受控多 Agent | Intent / Order / Policy / Ticket / Response 分工，LangGraph 显式路由 | 每个业务动作可解释、可测试，不让模型无限自主执行 |
+| 用户隔离 | Bearer Token → Principal → 会话 owner 与 ScopedTools 归属检查 | 历史消息和模型输出不能成为访问别人的订单的凭据 |
+| 人工审核 | interrupt 暂停，客服专属接口通过 Command(resume=...) 恢复 | 先审核再建单，普通聊天不能伪造 approved |
+| 幂等与恢复 | request_id 去重、固定消息 ID、工单唯一键、SQLite Checkpointer | 网络丢响应后重试，避免重复消息与重复工单 |
+| 政策 RAG | 真实政策文件、TF-IDF Top-K 检索、来源与片段展示 | 把回答依据展示出来，不只输出一段无来源的话 |
+| 模型回退 | 可配置兼容 API；分类回退规则，回复失败保留模板 | 模型不可用时仍能运行确定性业务，轨迹记录实际模式 |
+| 效果评测 | 意图分类、政策检索、工作流场景；JSON / CSV / Markdown 报告 | 将“功能跑通”与“Agent 效果”分开验证 |
+
+这里的 Multi-Agent 是**显式分工、受约束的业务工作流**，不是无限循环的自主规划器。当前也没有引入向量数据库、Embedding 混合检索或模型微调。
+
+## 三轮对话实操
+
+建议在同一个新会话中依次输入以下问题：
+
+| 轮次 | 输入 | 预期行为 |
+|---|---|---|
+| 第一轮 | 我的订单 ORD1001 到哪了？ | 查询本人的订单和物流，得到已完成的运行 |
+| 第二轮 | 那它可以退款吗？ | 关联 ORD1001，复核归属并检索当前退款政策 |
+| 第三轮 | 那帮我申请售后吧。 | 关联同一订单，暂停在 awaiting_review，尚未创建工单 |
+
+### 售后申请先等待审核
+
+客户提交第三轮请求后，系统保存检查点。有客服权限的人在“访问身份设置”验证身份，选择该历史会话，再打开最后一条消息的“查看运行详情”。
+
+![客服审核界面：售后请求暂停，批准前尚未建单](docs/screenshots/03-human-review.jpg)
+
+*图中使用的是公开本机客服身份 S1001，能看到“通过并创建工单”和“拒绝”；客户身份看不到这些审批按钮。*
+
+### 审核通过后继续原运行
+
+客服批准后，LangGraph 从同一 run 的检查点继续执行 TicketAgent。助手消息更新为工单结果；拒绝则不会建单。
+
+![审核完成：原运行继续，助手回复更新为模拟工单结果](docs/screenshots/04-ticket-completed.jpg)
+
+*审核前后 run_id 保持不变。工单创建仅表示已进入售后跟进，不代表退款或赔偿已获批准。*
+
+### 还可以检查这些边界
+
+- **缺少订单号：**新会话输入“帮我查一下订单”，再补充 ORD1001，应恢复原 awaiting_input 的 run。
+- **越权订单：**客户 U1001 查询 ORD1002，应拒绝透露其他客户的商品和物流。
+- **会话隔离：**新建另一会话，“那它”不能自动继承上一会话的订单。
+- **安全重试：**消息失败后使用“安全重试原消息”，沿用原 request_id；不要换新键反复提交。
+- **历史恢复：**刷新后重新验证同一身份、选择原会话，可读取历史与审核后的最新结果。
+- **旧功能入口：**“最近运行与恢复 / 最近运行与客服审核”保留原工作台与审核队列。
+
+Enter 发送、Shift+Enter 换行；输入法组词时 Enter 不发送。当前为同步 HTTP 请求，并非流式 SSE 聊天。
+
+## 系统架构
+
+~~~mermaid
+flowchart TD
+    UI["Vue 3 + TypeScript 客服工作台"] --> API["FastAPI / Bearer 身份校验"]
+    API --> CHAT["ConversationService 会话、消息与请求去重"]
+    CHAT --> CONTEXT["有界历史 + 已确认订单线索"]
+    CONTEXT --> RUN["WorkflowService / LangGraph"]
+    CHAT -. "会话与消息" .-> REGISTRY[("workflow_runs.db")]
+    RUN -. "运行登记" .-> REGISTRY
+    RUN -. "run_id = thread_id" .-> CHECKPOINT[("workflow_checkpoints.db")]
+    RUN --> AGENTS["Intent / Order / Policy / Response"]
+    AGENTS --> TOOLS["ScopedTools / 客户归属校验"]
+    TOOLS --> BIZ[("business.db / 模拟订单与工单")]
+    TOOLS --> RAG["TF-IDF / 仓库政策文件"]
+    RUN --> REVIEW["售后、投诉等需要人工审核的请求"]
+    REVIEW --> PAUSE["interrupt 暂停 / 客服审批"]
+    PAUSE --> RESUME["Command resume / 同一 run 继续"]
+    RESUME --> TICKET["TicketAgent / 幂等建单"]
+    TICKET --> TOOLS
+~~~
+
+### 四种 ID 各管一件事
+
+| 标识 | 职责 | 什么时候保持不变 |
+|---|---|---|
+| conversation_id | 归组完整聊天会话 | 同一会话的多轮请求 |
+| run_id | 标识一次业务执行，同时作为 Checkpointer 的 thread_id | 澄清、人工审核与故障恢复 |
+| request_id | 标识一次提交的业务幂等键 | 同一次提交失败重试 |
+| message_id | 标识一条已持久化消息 | 同一次请求重试不新增重复消息 |
+
+一个会话可以有多个 run。已完成后的新业务请求创建新 run；补充订单号则优先恢复原来待补充的 run。不能直接用 conversation_id 替换 thread_id，否则可能混淆待审核和已完成流程。
+
+消息登记、图检查点和业务工单分别持久化，依靠幂等与状态对齐协作；**不宣称跨数据库的分布式 exactly-once**。详细设计见[多轮架构说明](docs/MULTI_TURN_ARCHITECTURE.md)。
+
+## 快速开始
+
+### 环境要求
+
+- Python 3.12，后端沿用项目的 .venv。
+- Node.js 24、pnpm 11.19.0（与 packageManager 和 CI 对齐）。
+- Windows / PowerShell 为主要本地开发环境；SQLite 不需要另启数据库服务。
+- 可选的大模型 API：未配置时可以使用规则分类和模板回复。
+
+已有 .venv、依赖和配置时，直接运行启动命令，不必重新创建环境。下列克隆与安装只需首次执行。
+
+### 1. 获取代码并安装后端依赖
+
+~~~powershell
+git clone https://github.com/YangCurry11/enterprise-support-agent.git
+cd enterprise-support-agent
+
+# 已有 .venv 时跳过创建
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+# 不覆盖已有的私有配置
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+~~~
+
+### 2. 启动后端
+
+在项目根目录的终端运行：
+
+~~~powershell
 .\.venv\Scripts\python.exe -m uvicorn support_agent.app:app --reload --host 127.0.0.1 --port 8000
-```
+~~~
 
-后端终端保持运行。API 文档：<http://127.0.0.1:8000/docs>。
+后端文档：<http://127.0.0.1:8000/docs>。保持该终端运行。
 
-项目包含 .env.example；如需自定义模型或凭证，复制成 .env 再修改。不开模型也能运行所有工作流测试。模型配置为 LLM_API_KEY、LLM_BASE_URL、LLM_MODEL；LLM_INTENT_ENABLED=true 可启用结构化模型分类，供应商须支持相应工具调用协议。
+### 3. 启动前端
 
-已有 .env 时保留其他配置，仅修改对应项。密钥只放后端环境，不能放进 Vue 的 VITE_* 变量；不要提交 .env、实际凭证、运行数据库或模型检查点。配置供应商不等于已联调，页面可能返回模板兜底；真实调用应另外核对供应商记录和返回结果。
+新开第二个终端：
 
-建议按 [当前学习路线](docs/learning_path.md) 阅读，再参考 [架构说明](docs/architecture.md) 和 [面试说明](docs/interview_notes.md)。[Dify/Coze 接入](docs/dify_coze_setup.md) 是可选适配，不能绕过人工审核。
-
-## 启动前端
-
-先安装 Node.js 24 LTS。在第二个终端执行：
-
-```powershell
+~~~powershell
 cd frontend
+
+# 仅尚未安装 pnpm 时执行
 npm.cmd install -g pnpm@11.19.0
 pnpm.cmd install --frozen-lockfile
 pnpm.cmd dev
-```
+~~~
 
-浏览器打开 <http://127.0.0.1:5173>。使用 `.cmd` 可以避免 PowerShell 对 npm.ps1 / pnpm.ps1 的执行策略限制。
+打开 <http://127.0.0.1:5173>。使用 .cmd 可避免 PowerShell 对 npm.ps1 / pnpm.ps1 的执行策略限制。
 
-## 验证升级功能
+### 4. 本机开发身份
 
-开发模式提供两种公开测试凭证，只用于本机测试：
-
-| 凭证 | 身份 | 操作 |
+| 公开开发凭证 | 身份 | 可做的事 |
 |---|---|---|
-| dev-customer-u1001 | U1001 / customer | 查询自己的订单、发起请求、补充订单号 |
-| dev-support-reviewer | S1001 / support | 从运行历史打开请求、审核通过或拒绝 |
+| dev-customer-u1001 | U1001 / customer | 本人订单查询、政策问答、售后申请、补充订单号 |
+| dev-support-reviewer | S1001 / support | 审核通过或拒绝、查看运行记录和评测报告 |
 
-1. 客户身份查询“ORD1001 到哪了”，应返回本人的物流信息。
-2. 查询“ORD1002 到哪了”，应拒绝透露其他用户的订单。
-3. 输入“我的订单到哪了”，应进入待补充状态；提交 ORD1001 后继续。
-4. 输入“我要投诉”，应进入待审核状态，此时没有创建工单。
-5. 在访问凭证中换为客服凭证并验证身份，在历史记录打开该请求。
-6. 选择通过后创建高优先级工单；选择拒绝则不创建工单。
-7. 可以在审核前重启后端，再打开同一次请求，检查等待状态仍然保留。
+这些凭证仅在 development 且未自定义 SUPPORT_AUTH_TOKENS 时使用。如果已有 .env 私有配置，以自己的配置为准；不要为了截图覆盖真实密钥。客服新建会话时需要填写合法服务对象，例如 U1001。
 
-## 测试
+## 评测与测试
 
-```powershell
+### 评测页面
+
+客服身份可读取最近一次实际评测报告，查看 Accuracy、各类 F1、Recall@K、MRR、工作流通过数和错误样例。没有报告时显示空状态，不展示虚构成绩。
+
+![Agent 评测页面：读取实际离线报告并展示类别指标和错误样例](docs/screenshots/05-agent-evaluation.jpg)
+
+*页面只读取报告，不触发模型调用。截图中的耗时来自本机 TestClient，不是公网压测结果。*
+
+### 运行评测
+
+在项目根目录运行：
+
+~~~powershell
+# 默认 offline：不发起真实模型请求
+.\.venv\Scripts\python.exe -m evaluation.run_evaluation
+~~~
+
+默认生成 evaluation/reports/latest.json、details.csv、summary.md；这些生成文件被 Git 忽略。若要执行真实模型意图分类，需显式指定 live，且会消耗供应商额度：
+
+~~~powershell
+# 先在后端私有环境配置模型；仅意图分类组件 live，其他组件仍离线
+.\.venv\Scripts\python.exe -m evaluation.run_evaluation --mode live --live-limit 5 --output .\evaluation\reports-live
+~~~
+
+### 已记录的离线基线
+
+以下来自 2026-10-22 的[验证记录](docs/VERIFICATION_PHASE1_20261022.md)，不是生产业务指标。
+
+| 评测对象 | 样本量 | 实测结果 |
+|---|---:|---|
+| 规则意图识别 | 80 | Accuracy 91.25%；Macro-F1 0.9208 |
+| TF-IDF 政策检索 | 20 | Recall@1 / @3 / @5：95% / 95% / 100%；MRR 0.9625 |
+| 工作流场景 | 10 | 10/10 符合预期，包含越权拒绝、等待审核、重复请求和模型超时回退 |
+
+**标注由 AI 辅助编写，尚未经独立人工复核；不是实际客户数据或冻结的独立测试集。**RAG 的 gold 是源文档，K 为返回片段数，文档命中不等于答案事实正确。工作流 10/10 也不等于所有 run 都完成，其中包含按预期停在审核节点的场景。错误样例保留在明细中，不删失败案例凑分。
+
+### 运行自动化测试
+
+~~~powershell
+# 项目根目录；测试使用临时数据库和模拟模型
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m pip check
+
 cd frontend
 pnpm.cmd test
 pnpm.cmd build
-```
+~~~
 
-测试覆盖权限、订单归属、审核拒绝、检查点恢复、重复请求、重复建单、模型降级和前端审核交互。数据库测试使用临时目录，不修改业务数据库。
+最近一次升级验证：后端 **41 项**、前端 **19 项**测试通过，生产构建成功。云端结果请查看 [GitHub Actions](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml)。完整指标定义和统计分母见[评测指南](docs/EVALUATION_GUIDE.md)。
 
-本次本地发布检查结果及未验证范围见 [验证记录](docs/VERIFICATION_20261020.md)。GitHub Actions 需以仓库中的实际运行结果为准。
+## 项目结构
 
-## 数据与兼容性
+~~~text
+enterprise-support-agent/
+├── support_agent/
+│   ├── app.py                 # FastAPI 边界、会话与工作流 API
+│   ├── conversations.py       # 会话/消息事务、幂等调度与结果同步
+│   ├── chat_context.py        # 有界历史与订单指代
+│   ├── chat_schemas.py        # Pydantic 请求/响应契约
+│   ├── runtime.py             # 运行登记、检查点、恢复与审计
+│   ├── workflow.py            # StateGraph、条件路由、interrupt/resume
+│   ├── agents.py              # 意图、订单、政策、工单与回复分工
+│   ├── scoped_tools.py        # 服务端工具归属与写入约束
+│   ├── llm_client.py          # 模型适配、受限分类与回复
+│   ├── rag.py                 # TF-IDF 政策检索
+│   └── business_db.py         # SQLite 模拟业务数据
+├── frontend/src/
+│   ├── App.vue                # 连续聊天入口
+│   ├── LegacyWorkbench.vue    # 保留原运行/审核工作台
+│   ├── composables/
+│   │   └── useConversation.ts # 会话状态、安全重试、身份切换
+│   ├── components/            # 聊天、运行详情、政策依据与评测组件
+│   ├── api.ts                 # Bearer 请求封装
+│   └── types.ts               # 前端类型契约
+├── evaluation/
+│   ├── datasets/              # 模拟意图、检索与业务场景
+│   ├── evaluators/            # 各类评测器与指标纯函数
+│   └── run_evaluation.py      # offline/live CLI 与报告输出
+├── data/                      # 政策与模拟业务种子；运行数据库不入 Git
+├── tests/                     # 后端回归与安全测试
+├── api/                       # OpenAPI 导出
+├── docs/                      # 架构、学习指南、验证记录与当前截图
+└── .github/workflows/ci.yml    # 后端测试、前端测试与构建
+~~~
 
-已有 business.db 保留，并进行新增列的迁移。原 agent_logs.db 保留，但旧历史不自动导入新工作流。新记录保存在 workflow_runs.db，检查点保存在 workflow_checkpoints.db。
+## 接口与配置
 
-旧 `support_agent.mock_api:app` 名称仍指向新应用，原启动命令可继续使用。API 请求现在必须携带身份凭证和 request_id；旧 Dify/Coze 调用配置需要更新。
+### 主要 API
 
-## 部署
+除健康检查外，以下业务接口需要 Bearer 身份。完整类型与参数可在启动后的 /docs 查看。
 
-已提供 Dockerfile 和 GitHub Actions。Docker 容器默认 SUPPORT_ENV=production，必须配置私有 SUPPORT_AUTH_TOKENS；不会启用公开开发凭证。数据目录需挂载持久卷。
+| 接口 | 用途 |
+|---|---|
+| POST /agent/conversations | 创建独立会话 |
+| GET /agent/conversations | 分页列出有权访问的会话 |
+| GET /agent/conversations/{conversation_id} | 查询指定会话 |
+| GET /agent/conversations/{conversation_id}/messages | 按游标读取消息历史 |
+| POST /agent/conversations/{conversation_id}/messages | 发送消息，附 content 和 UUID request_id |
+| POST /agent/run | 保留原单次请求 API |
+| GET /agent/runs、GET /agent/runs/{run_id} | 运行历史与详情 |
+| POST /agent/runs/{run_id}/resume、/retry | 补充信息或恢复执行 |
+| GET /agent/reviews、POST /agent/runs/{run_id}/review | 客服审核队列与审批 |
+| GET /agent/runs/{run_id}/audit | 客服查看运行审计 |
+| GET /agent/evaluations/latest | 客服读取最近一次评测报告 |
 
-```powershell
-docker build -t enterprise-support-agent:0.2 .
-docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/var/lib/support enterprise-support-agent:0.2
-```
+### 关键配置
 
-.env.production 至少设置 SUPPORT_ENV=production 和 SUPPORT_AUTH_TOKENS（格式见 .env.example）。不要提交实际凭证。
+只在后端 .env 或环境变量中保存私有值，不要放进 VITE_*、截图或 Git。
 
-当前只能启动一个 API worker。多实例需配套实现 PostgreSQL 检查点和分布式调度；对外上线前需接入企业身份系统和真实业务适配器，并进行并发、恢复、业务评测与运维验收。
+| 配置 | 作用 |
+|---|---|
+| LLM_API_KEY / LLM_BASE_URL / LLM_MODEL | 模型供应商密钥、兼容地址与真实模型 code |
+| LLM_INTENT_ENABLED | 是否启用模型辅助的受限意图分类，默认 false |
+| LLM_TIMEOUT_SECONDS | 模型请求超时配置 |
+| CHAT_CONTEXT_ENABLED | 是否启用会话上下文，默认 true |
+| CHAT_HISTORY_WINDOW | 最近消息条数，默认 10，合法范围 1..50 |
+| CHAT_MAX_CONTEXT_CHARS | 序列化上下文字符上限，默认 12000，范围 256..24000 |
+| SUPPORT_AUTH_TOKENS | 服务端身份配置；生产必须使用私有配置或接企业身份 |
+| SUPPORT_DATA_DIR | 数据库存储目录 |
+| CORS_ORIGINS | 允许访问 API 的前端来源 |
+| EVALUATION_REPORT_DIR | 可选的评测报告读取目录 |
+
+历史仅提供线索，不能更改真实身份、订单授权或人工审批。即使上一轮已确认订单，每轮相关工具访问仍重新校验归属。
+
+## 部署边界
+
+已提供用于**后端 API**的 Dockerfile；它不包含 Vue 前端，也不替代生产运维验收。
+
+~~~powershell
+docker build -t enterprise-support-agent:phase1 .
+docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/var/lib/support enterprise-support-agent:phase1
+~~~
+
+.env.production 至少配置 SUPPORT_ENV=production 与私有 SUPPORT_AUTH_TOKENS。不要提交配置文件；持久化卷中包含消息、检查点与业务数据。
+
+当前边界：
+
+- 只运行一个 API worker；进程内 RLock 不是分布式锁。
+- 静态开发身份、SQLite、本地模拟业务不等于完成企业生产上线。
+- 真实千问三轮端到端、生产 Token/成本、限流、并发压力和灾难恢复仍需专项验证。
+- 对外部署前需要企业身份、密钥管理、数据脱敏/保留策略、真实业务适配与运维监控。
+- 旧 agent_logs.db 保留，不自动导入新工作流；已有业务表与会话表采用增量迁移，不能清库“升级”。
+- Dify / Coze 是可选接入方式，不能绕过同样的鉴权和人工审核。
+
+## 学习文档
+
+| 想了解什么 | 从这里开始 |
+|---|---|
+| 如何运行、三轮演示、代码学习顺序与面试追问 | [第一阶段升级精讲](docs/PHASE1_UPGRADE.md) |
+| 四种 ID、数据库表、上下文、检查点与恢复边界 | [多轮架构说明](docs/MULTI_TURN_ARCHITECTURE.md) |
+| 如何跑评测，Accuracy / F1 / Recall / P95 怎么定义 | [评测指南](docs/EVALUATION_GUIDE.md) |
+| 实际测试结果、联调过程与尚未验证内容 | [第一阶段验证记录](docs/VERIFICATION_PHASE1_20261022.md) |
+| 原工作流版本的升级背景与兼容性 | [v0.2 升级说明](docs/UPGRADE_V02.md) |
+| 原有学习路线、API 示例与第三方接入 | [学习路线](docs/learning_path.md) · [API 示例](docs/api_examples.md) · [Dify / Coze](docs/dify_coze_setup.md) |
+| 本次页面图的采集环境与复现步骤 | [截图说明](docs/screenshots/README.md) |
+
+后续迭代优先补齐人工复核的独立评测集、真实模型端到端验证与业务适配，再依据错误分析决定是否升级检索或调度架构。
