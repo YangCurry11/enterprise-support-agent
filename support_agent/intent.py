@@ -15,7 +15,7 @@ INTENT_HUMAN = "human_escalation" # 人工处理
 INTENT_CHITCHAT = "chit_chat"  # 闲聊
 INTENT_UNKNOWN = "unknown" # 未知
 
-ORDER_ID_PATTERN = re.compile(r"\bORD\d{4,}\b", re.IGNORECASE) # 订单号提取格式 re.IGNORECASE：忽略大小写
+ORDER_ID_PATTERN = re.compile(r"(?<![A-Za-z0-9])ORD\d{4,}(?![A-Za-z0-9])", re.IGNORECASE) # 允许订单号紧邻中文，不接受嵌入英文标识符
 
 
 @dataclass

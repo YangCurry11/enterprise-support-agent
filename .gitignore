@@ -57,3 +57,10 @@ docs/面试准备_*/
 *.sqlite3
 *.sqlite-*
 *.sqlite3-*
+
+# Private evaluation outputs; curated synthetic datasets remain tracked
+evaluation/reports/*
+!evaluation/reports/.gitkeep
+evaluation/reports-*/
+.pytest_tmp*/
+.impeccable/review/

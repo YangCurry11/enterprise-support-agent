@@ -39,6 +39,8 @@ class AgentState: # 记录整个对话任务的状态
     need_human: bool = False # 是否需要人工处理
     final_response: str = "" # 最终的回复
     steps: List[StepRecord] = field(default_factory=list) #保存每个agent的执行情况
+    conversation_id: Optional[str] = None
+    conversation_context: Dict[str, Any] = field(default_factory=dict)
 
     def add_step(self, name: str, detail: Dict[str, Any]): # 添加一个agent的执行情况
         self.steps.append(StepRecord(name=name, detail=detail))
@@ -57,7 +59,10 @@ class IntentAgent: # 意图识别
         state.intent = result.intent
         state.intent_confidence = result.confidence
         state.intent_reason = result.reason
-        state.order_id = result.order_id
+        state.order_id = result.order_id or state.conversation_context.get("order_id")
+        if result.intent == INTENT_UNKNOWN and state.conversation_context.get("intent_hint"):
+            state.intent = state.conversation_context["intent_hint"]
+            state.intent_reason = "服务端会话指代回退：" + state.intent_reason
         state.add_step("IntentAgent", {
             "intent": state.intent,
             "confidence": state.intent_confidence,
@@ -92,6 +97,14 @@ class PolicyAgent: # 政策查询
         self.tools = tools
 
     def run(self, state: AgentState) -> AgentState:
+        # 历史中确认过的编号不是授权凭据；每轮按业务客户范围重新读取。
+        if state.order_id:
+            order = self.tools.query_order(state.order_id)
+            state.tool_results["query_order"] = order
+            state.add_step("OrderContextCheck", {"tool": "query_order", "result": order})
+            if not order.get("ok"):
+                state.final_response = "订单不存在或当前用户不可访问，未查询该订单的政策适用情况。"
+                return state
         result = self.tools.search_policy(state.user_input, top_k=3) # 调用工具查询政策 top_k=3：最多返回3个相关片段
         state.tool_results["search_policy"] = result
         state.retrieved_docs = result.get("data", []) if result.get("ok") else [] # 如果查询成功，则保存检索到的政策文档片段
@@ -185,6 +198,11 @@ class ResponseAgent: # 回复生成
         else:
             state.final_response = "我暂时无法准确判断您的问题类型，请补充订单号、退款原因或售后问题描述。"
 
+        if state.intent in [INTENT_REFUND, INTENT_SHIPPING, INTENT_AFTER_SALES]:
+            order = state.tool_results.get("query_order", {})
+            if order.get("ok"):
+                data = order["data"]
+                state.final_response = f"当前关联订单 {data['order_id']}，状态为【{data['status']}】。\n" + state.final_response
         state.add_step("ResponseAgent", {"final_response": state.final_response})
         return state
 
@@ -238,6 +256,7 @@ class LLMResponseAgent(ResponseAgent): # LLMResponseAgent 继承 ResponseAgent
                 ticket_info=ticket_info,
                 need_human=state.need_human,
                 template_reply=template_reply,
+                conversation_context=state.conversation_context,
             )
             
             # 更新最终回复

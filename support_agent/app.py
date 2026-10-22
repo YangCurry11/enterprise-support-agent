@@ -4,6 +4,9 @@ from contextlib import asynccontextmanager
 import logging
 import re
 import uuid
+import json
+import os
+from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
@@ -11,6 +14,23 @@ from .auth import Principal, current_principal, require_support, identities
 from .config import CORS_ORIGINS, DATA_DIR, POLICY_DIR
 from . import business_db
 from .runtime import WorkflowService
+from .conversations import ConversationStore, ConversationService
+from .chat_context import ContextSettings
+from .chat_schemas import ConversationCreate, ConversationView, ConversationList, MessageCreate, MessageList, MessageResult
+
+
+def latest_evaluation(principal: Principal = Depends(require_support)):
+    directory = Path(os.getenv("EVALUATION_REPORT_DIR", str(Path(__file__).resolve().parents[1]/"evaluation"/"reports")))
+    report = directory / "latest.json"
+    if not report.is_file():
+        return {"report": None}
+    if report.stat().st_size > 5_000_000:
+        raise HTTPException(503, "评测报告超过允许大小")
+    try:
+        value = json.loads(report.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        raise HTTPException(503, "评测报告无法读取，请重新生成") from None
+    return {"report": value}
 
 
 @asynccontextmanager
@@ -19,10 +39,13 @@ async def lifespan(app):
     business_db.init_business_db()
     business_db.seed_business_db_from_json(overwrite=False)
     app.state.workflows = WorkflowService(DATA_DIR)
+    ContextSettings.read()
+    app.state.conversations = ConversationStore(app.state.workflows.registry)
     yield
 
 
 app = FastAPI(title="Enterprise Support Workflow API", version="0.2.0", lifespan=lifespan)
+app.add_api_route("/agent/evaluations/latest", latest_evaluation, methods=["GET"])
 app.add_middleware(CORSMiddleware, allow_origins=list(CORS_ORIGINS), allow_credentials=False,
                    allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Authorization"],
                    expose_headers=["X-Request-ID"])
@@ -62,6 +85,41 @@ class ReviewRequest(StrictRequest):
 
 def service(request: Request):
     return request.app.state.workflows
+
+
+def chat_service(request: Request):
+    return ConversationService(request.app.state.conversations, request.app.state.workflows)
+
+
+@app.post("/agent/conversations", response_model=ConversationView, status_code=201)
+def create_conversation(payload: ConversationCreate, principal: Principal = Depends(current_principal), chat=Depends(chat_service)):
+    return chat.store.create(principal, payload.title, payload.owner_user_id)
+
+
+@app.get("/agent/conversations", response_model=ConversationList)
+def conversations(limit: int = Query(30, ge=1, le=100), offset: int = Query(0, ge=0),
+                  principal: Principal = Depends(current_principal), chat=Depends(chat_service)):
+    return {"conversations": chat.store.list(principal, limit, offset), "limit": limit, "offset": offset}
+
+
+@app.get("/agent/conversations/{conversation_id}", response_model=ConversationView)
+def conversation(conversation_id: uuid.UUID, principal: Principal = Depends(current_principal), chat=Depends(chat_service)):
+    return chat.store.get(str(conversation_id), principal)
+
+
+@app.get("/agent/conversations/{conversation_id}/messages", response_model=MessageList)
+def messages(conversation_id: uuid.UUID, limit: int = Query(50, ge=1, le=100), before: int | None = Query(None, ge=1),
+             principal: Principal = Depends(current_principal), chat=Depends(chat_service)):
+    identifier = str(conversation_id)
+    chat.reconcile(identifier, principal)
+    rows = chat.store.messages(identifier, principal, limit, before)
+    return {"messages": rows, "next_before": rows[0]["sequence"] if len(rows) == limit else None}
+
+
+@app.post("/agent/conversations/{conversation_id}/messages", response_model=MessageResult)
+def send_message(conversation_id: uuid.UUID, payload: MessageCreate,
+                 principal: Principal = Depends(current_principal), chat=Depends(chat_service)):
+    return chat.send(str(conversation_id), payload.content, str(payload.request_id), principal)
 
 
 @app.get("/")

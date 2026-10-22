@@ -47,6 +47,18 @@ class WorkflowService:
                     actor_id TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL
                 );
             """)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(runs)")}
+            if "conversation_id" not in columns:
+                conn.execute("ALTER TABLE runs ADD COLUMN conversation_id TEXT")
+            if "context_json" not in columns:
+                conn.execute("ALTER TABLE runs ADD COLUMN context_json TEXT NOT NULL DEFAULT '{}'")
+
+    def initial_value(self, row):
+        # thread_id 仍为 run_id；会话只提供有限、已冻结的辅助上下文。
+        state = AgentState(row["input"], row["user_id"],
+                           conversation_id=row.get("conversation_id"),
+                           conversation_context=json.loads(row.get("context_json") or "{}"))
+        return {"data": state.to_dict(), "run_id": row["run_id"]}
 
     @contextmanager
     def connection(self):
@@ -104,8 +116,9 @@ class WorkflowService:
             self.audit(row["run_id"], actor, "execution_failed")
             raise HTTPException(503, "流程执行失败；可使用相同请求编号重试，不会重复创建工单。") from None
 
-    def start(self, text, user_id, key, principal):
-        fingerprint = hashlib.sha256(json.dumps([text, user_id], ensure_ascii=False).encode()).hexdigest()
+    def start(self, text, user_id, key, principal, *, conversation_id=None, context=None):
+        fingerprint_values = [text, user_id] if conversation_id is None else [text, user_id, conversation_id]
+        fingerprint = hashlib.sha256(json.dumps(fingerprint_values, ensure_ascii=False).encode()).hexdigest()
         with execution_lock:
             with self.connection() as conn:
                 found = conn.execute("SELECT * FROM runs WHERE actor_id=? AND request_key=?", (principal.user_id, key)).fetchone()
@@ -113,8 +126,9 @@ class WorkflowService:
                     raise HTTPException(409, "相同请求编号不能用于不同请求")
                 if not found:
                     run_id = str(uuid.uuid4())
-                    conn.execute("INSERT INTO runs(run_id,actor_id,user_id,request_key,fingerprint,input,created_at) VALUES (?,?,?,?,?,?,?)",
-                                 (run_id, principal.user_id, user_id, key, fingerprint, text, datetime.now(timezone.utc).isoformat()))
+                    conn.execute("INSERT INTO runs(run_id,actor_id,user_id,request_key,fingerprint,input,created_at,conversation_id,context_json) VALUES (?,?,?,?,?,?,?,?,?)",
+                                 (run_id, principal.user_id, user_id, key, fingerprint, text, datetime.now(timezone.utc).isoformat(),
+                                  conversation_id, json.dumps(context or {}, ensure_ascii=False)))
                     found = conn.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
             row = dict(found)
             with self.graph(row) as graph:
@@ -122,7 +136,7 @@ class WorkflowService:
                 if current["status"] not in {"running", "failed"}:
                     return current
                 snapshot = graph.get_state({"configurable": {"thread_id": row["run_id"]}})
-                value = None if snapshot.values else {"data": AgentState(text, user_id).to_dict(), "run_id": row["run_id"]}
+                value = None if snapshot.values else self.initial_value(row)
                 return self.invoke(graph, row, value, principal.user_id, "run_started_or_recovered")
 
     def get(self, run_id, principal):
@@ -139,7 +153,7 @@ class WorkflowService:
                 if current["status"] not in {"running", "failed"}:
                     return current
                 snapshot = graph.get_state({"configurable": {"thread_id": run_id}})
-                value = None if snapshot.values else {"data": AgentState(row["input"], row["user_id"]).to_dict(), "run_id": run_id}
+                value = None if snapshot.values else self.initial_value(row)
                 return self.invoke(graph, row, value, principal.user_id, "run_recovered")
 
     def resume(self, run_id, answer, principal, review=False):

@@ -1,4 +1,4 @@
-import type { AgentHistoryItem, AgentResult, Health, Identity } from "./types";
+import type { AgentHistoryItem, AgentResult, Health, Identity, Conversation, MessagePage, ChatResult, EvaluationReport } from "./types";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 let credential = "";
@@ -36,6 +36,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const supportApi = {
+  createConversation: (owner?: string) => request<Conversation>("/agent/conversations", {
+    method: "POST", body: JSON.stringify(owner ? { owner_user_id: owner } : {}),
+  }),
+  conversations: async (offset = 0) => (await request<{conversations: Conversation[]}>(`/agent/conversations?limit=30&offset=${offset}`)).conversations,
+  conversation: (id: string) => request<Conversation>(`/agent/conversations/${encodeURIComponent(id)}`),
+  messages: (id: string, before?: number) => request<MessagePage>(`/agent/conversations/${encodeURIComponent(id)}/messages?limit=50${before ? `&before=${before}` : ""}`),
+  sendMessage: (id: string, content: string, key: string) => request<ChatResult>(`/agent/conversations/${encodeURIComponent(id)}/messages`, {
+    method: "POST", body: JSON.stringify({ content, request_id: key }),
+  }),
+  evaluation: async () => (await request<{report: EvaluationReport | null}>("/agent/evaluations/latest")).report,
   health: () => request<Health>("/"),
   me: () => request<Identity>("/me"),
   run: (userInput: string, userId: string, requestId: string) => request<AgentResult>("/agent/run", {

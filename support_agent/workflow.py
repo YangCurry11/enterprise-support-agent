@@ -102,7 +102,7 @@ def build_graph(tools, checkpointer):
     graph.add_conditional_edges("intent", route, {name: name for name in ["clarify", "policy", "review", "response"]})
     graph.add_edge("clarify", "order")
     graph.add_edge("order", "response")
-    graph.add_conditional_edges("policy", lambda raw: "review" if raw["data"]["intent"] == "after_sales" else "response",
+    graph.add_conditional_edges("policy", lambda raw: "review" if raw["data"]["intent"] == "after_sales" and not raw["data"]["final_response"] else "response",
                                 {"review": "review", "response": "response"})
     graph.add_conditional_edges("review", lambda raw: "ticket" if raw["review"]["approved"] else "response",
                                 {"ticket": "ticket", "response": "response"})

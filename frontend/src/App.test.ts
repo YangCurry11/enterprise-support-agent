@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createApp, nextTick, type App as VueApp } from "vue";
-import App from "./App.vue";
+// The original workbench is preserved intact behind the run/review navigation.
+import App from "./LegacyWorkbench.vue";
 import { supportApi } from "./api";
 
 vi.mock("./api", () => ({

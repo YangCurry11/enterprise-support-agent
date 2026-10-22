@@ -1,6 +1,10 @@
-# 企业客服多 Agent 系统 v0.2
+# 企业客服多 Agent 系统：ServiceFlow 第一阶段升级
 
 Vue 3 + TypeScript、FastAPI、LangGraph、SQLite 组成的客服工作流系统。支持订单查询、政策问答、补充信息、人工审核、幂等建单、故障恢复和运行审计。
+
+现已新增连续聊天、独立 conversation_id、SQLite 会话/消息持久化、有界订单上下文及默认离线效果评测。run_id 仍是 LangGraph thread_id，旧工作台与 API 保留。优先阅读 [运行与第一阶段精讲](docs/PHASE1_UPGRADE.md)、[多轮架构](docs/MULTI_TURN_ARCHITECTURE.md)、[评测指南](docs/EVALUATION_GUIDE.md)。
+
+评测集为 AI 辅助模拟开发标注，尚未独立人工复核，不是实际企业业务数据；本轮未执行真实千问端到端评测。
 
 当前业务数据为本机测试数据，架构支持单实例低并发试点。完整升级说明、学习顺序和面试表述见 [docs/UPGRADE_V02.md](docs/UPGRADE_V02.md)。
 
