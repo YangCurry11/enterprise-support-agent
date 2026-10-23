@@ -18,6 +18,7 @@ from .intent import (
     INTENT_UNKNOWN,
 )
 from .tools import SupportTools  # 导入支持工具
+from .model_runtime import error_code
 
 
 @dataclass 
@@ -63,11 +64,14 @@ class IntentAgent: # 意图识别
         if result.intent == INTENT_UNKNOWN and state.conversation_context.get("intent_hint"):
             state.intent = state.conversation_context["intent_hint"]
             state.intent_reason = "服务端会话指代回退：" + state.intent_reason
+            result.model_trace["context_override"] = True
+        result.model_trace["final_prediction"] = state.intent
         state.add_step("IntentAgent", {
             "intent": state.intent,
             "confidence": state.intent_confidence,
             "reason": state.intent_reason,
             "order_id": state.order_id,
+            "model_trace": result.model_trace,
         })
         return state
 
@@ -84,6 +88,9 @@ class OrderAgent: # 订单查询
 
         result = self.tools.query_order(state.order_id) # 调用工具查询订单
         state.tool_results["query_order"] = result
+        if not result.get("ok"):
+            # 拒绝与工具错误使用确定性回复，不交给模型润色。
+            state.final_response = "订单不存在或当前用户不可访问，未取得订单信息。"
         state.add_step("OrderAgent", {
             "tool": "query_order", 
             "input": state.order_id, 
@@ -226,13 +233,19 @@ class LLMResponseAgent(ResponseAgent): # LLMResponseAgent 继承 ResponseAgent
         template_reply = state.final_response
 
         try:
-            from .llm_client import generate_customer_reply, is_llm_enabled
+            from .llm_client import generate_customer_reply, is_llm_enabled, reset_model_trace, last_model_trace
+
+            reset_model_trace()
 
             if not is_llm_enabled():
                 state.add_step("LLMResponseAgent", {
                     "mode": "disabled",
                     "reason": "未配置 LLM_API_KEY，使用模板回复"
                 })
+                return state
+
+            if any(isinstance(result, dict) and result.get("ok") is False for result in state.tool_results.values()):
+                state.add_step("LLMResponseAgent", {"mode": "blocked_tool_error", "model_used": False})
                 return state
 
             # 2. 从 tool_results 里取订单信息
@@ -267,7 +280,10 @@ class LLMResponseAgent(ResponseAgent): # LLMResponseAgent 继承 ResponseAgent
                     "mode": "llm_generated",
                     "template_reply": template_reply,
                     "llm_reply": llm_reply,
+                    "model_trace": last_model_trace(),
                 })
+            else:
+                state.add_step("LLMResponseAgent", {"mode": "fallback_template", "error": "invalid_response", "model_used": False})
 
             return state
 
@@ -275,7 +291,8 @@ class LLMResponseAgent(ResponseAgent): # LLMResponseAgent 继承 ResponseAgent
             # 5. 大模型失败时，保留原模板回复
             state.add_step("LLMResponseAgent", {
                 "mode": "fallback_template",
-                "error": "llm_unavailable",
+                "error": error_code(exc),
+                "model_trace": last_model_trace(),
                 "template_reply": template_reply,
             })
             return state

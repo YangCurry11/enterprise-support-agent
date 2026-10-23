@@ -1,7 +1,7 @@
 # ServiceFlow · 企业客服多 Agent 系统
 
 [![CI](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml)
-[运行指南](docs/PHASE1_UPGRADE.md) · [多轮架构](docs/MULTI_TURN_ARCHITECTURE.md) · [评测说明](docs/EVALUATION_GUIDE.md) · [验证记录](docs/VERIFICATION_PHASE1_20261022.md)
+[运行指南](docs/PHASE1_UPGRADE.md) · [多轮架构](docs/MULTI_TURN_ARCHITECTURE.md) · [评测说明](docs/EVALUATION_GUIDE.md) · [千问第二阶段](docs/PHASE2_QWEN_VALIDATION.md) · [验证记录](docs/VERIFICATION_PHASE1_20261022.md)
 
 一个基于 **Vue 3 + TypeScript、FastAPI、LangGraph 与 SQLite** 的客服工作流项目：在同一会话中查询订单、追问政策、申请售后，并将需要业务写入的请求交给人工审核。
 
@@ -57,7 +57,7 @@
 | 幂等与恢复 | request_id 去重、固定消息 ID、工单唯一键、SQLite Checkpointer | 网络丢响应后重试，避免重复消息与重复工单 |
 | 政策 RAG | 真实政策文件、TF-IDF Top-K 检索、来源与片段展示 | 把回答依据展示出来，不只输出一段无来源的话 |
 | 模型回退 | 可配置兼容 API；分类回退规则，回复失败保留模板 | 模型不可用时仍能运行确定性业务，轨迹记录实际模式 |
-| 效果评测 | 意图分类、政策检索、工作流场景；JSON / CSV / Markdown 报告 | 将“功能跑通”与“Agent 效果”分开验证 |
+| 效果评测 | 意图同批规则/模型对比、政策检索、回复/权限/审核、离线故障与三轮工具；JSON / CSV / Markdown / 待人工表 | 将功能测试、模型效果与人工质量验收分开；显式组件、含重试的调用预算 |
 
 这里的 Multi-Agent 是**显式分工、受约束的业务工作流**，不是无限循环的自主规划器。当前也没有引入向量数据库、Embedding 混合检索或模型微调。
 
@@ -211,11 +211,23 @@ pnpm.cmd dev
 .\.venv\Scripts\python.exe -m evaluation.run_evaluation
 ~~~
 
-默认生成 evaluation/reports/latest.json、details.csv、summary.md；这些生成文件被 Git 忽略。若要执行真实模型意图分类，需显式指定 live，且会消耗供应商额度：
+默认生成 evaluation/reports/latest.json、details.csv、summary.md、manual_review.csv；这些生成文件被 Git 忽略。第二阶段新增6个回复/业务安全场景与6类离线故障；详细步骤见[第二阶段说明](docs/PHASE2_QWEN_VALIDATION.md)。
+
+先执行无网络的配置预检。下面的live命令需使用者自行授权执行，会消耗供应商额度；本阶段开发没有运行真实模型：
 
 ~~~powershell
-# 先在后端私有环境配置模型；仅意图分类组件 live，其他组件仍离线
+# 只预检格式，不创建模型客户端、不联网
+.\.venv\Scripts\python.exe -m evaluation.run_evaluation --check-config
+
+# 兼容旧命令：最多5次尝试（含重试），仍仅意图分类组件live
 .\.venv\Scripts\python.exe -m evaluation.run_evaluation --mode live --live-limit 5 --output .\evaluation\reports-live
+
+# 显式回复组件；必须明确总请求预算，不会隐式扩大消费
+.\.venv\Scripts\python.exe -m evaluation.run_evaluation --mode live --components reply --reply-limit 1 --max-model-calls 1 --output .\evaluation\reports-live-reply
+
+# 三轮入口默认离线：真实应用/图/原审核接口，临时SQLite
+.\.venv\Scripts\python.exe -m evaluation.verify_qwen --mode offline
+# 经授权后才执行：添加 --mode live --max-model-calls 8
 ~~~
 
 ### 已记录的离线基线
@@ -242,7 +254,7 @@ pnpm.cmd test
 pnpm.cmd build
 ~~~
 
-最近一次升级验证：后端 **41 项**、前端 **19 项**测试通过，生产构建成功。云端结果请查看 [GitHub Actions](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml)。完整指标定义和统计分母见[评测指南](docs/EVALUATION_GUIDE.md)。
+第二阶段发布前重新验证：后端 **103 项**、前端 **19 项**测试通过，生产构建和依赖检查成功；工作流10/10、回复6/6、故障注入6/6、独立三轮1/1符合离线预期，真实模型请求为0。完整记录见[第二阶段验证记录](docs/VERIFICATION_PHASE2_20261023.md)。代码与测试记录按用户授权同步GitHub；本提交的云端结果请查看 [GitHub Actions](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml)，不要把本地通过直接等同于云端通过。完整指标定义和统计分母见[评测指南](docs/EVALUATION_GUIDE.md)。
 
 ## 项目结构
 
@@ -258,6 +270,8 @@ enterprise-support-agent/
 │   ├── agents.py              # 意图、订单、政策、工单与回复分工
 │   ├── scoped_tools.py        # 服务端工具归属与写入约束
 │   ├── llm_client.py          # 模型适配、受限分类与回复
+│   ├── model_runtime.py       # 明确配置、有界重试、错误分类、调用硬预算
+│   ├── reply_safety.py        # 最小事实防线，不替代人工语义复核
 │   ├── rag.py                 # TF-IDF 政策检索
 │   └── business_db.py         # SQLite 模拟业务数据
 ├── frontend/src/
@@ -271,7 +285,10 @@ enterprise-support-agent/
 ├── evaluation/
 │   ├── datasets/              # 模拟意图、检索与业务场景
 │   ├── evaluators/            # 各类评测器与指标纯函数
-│   └── run_evaluation.py      # offline/live CLI 与报告输出
+│   ├── run_evaluation.py      # 显式组件、offline/live CLI 与报告输出
+│   ├── sandbox.py            # 临时数据库、模拟身份、真实工具观察
+│   ├── failure_checks.py     # 始终离线的故障/幂等验证
+│   └── verify_qwen.py        # 独立三轮+原审批恢复验证
 ├── data/                      # 政策与模拟业务种子；运行数据库不入 Git
 ├── tests/                     # 后端回归与安全测试
 ├── api/                       # OpenAPI 导出
@@ -307,7 +324,7 @@ enterprise-support-agent/
 |---|---|
 | LLM_API_KEY / LLM_BASE_URL / LLM_MODEL | 模型供应商密钥、兼容地址与真实模型 code |
 | LLM_INTENT_ENABLED | 是否启用模型辅助的受限意图分类，默认 false |
-| LLM_TIMEOUT_SECONDS | 模型请求超时配置 |
+| LLM_TIMEOUT_SECONDS / LLM_MAX_RETRIES | 每次超时0.1..120秒、额外重试0..2；SDK隐式重试关闭 |
 | CHAT_CONTEXT_ENABLED | 是否启用会话上下文，默认 true |
 | CHAT_HISTORY_WINDOW | 最近消息条数，默认 10，合法范围 1..50 |
 | CHAT_MAX_CONTEXT_CHARS | 序列化上下文字符上限，默认 12000，范围 256..24000 |
@@ -345,6 +362,8 @@ docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/va
 | 如何运行、三轮演示、代码学习顺序与面试追问 | [第一阶段升级精讲](docs/PHASE1_UPGRADE.md) |
 | 四种 ID、数据库表、上下文、检查点与恢复边界 | [多轮架构说明](docs/MULTI_TURN_ARCHITECTURE.md) |
 | 如何跑评测，Accuracy / F1 / Recall / P95 怎么定义 | [评测指南](docs/EVALUATION_GUIDE.md) |
+| 配置预检、显式在线组件、物理调用预算、三轮与人工质量复核 | [第二阶段千问验证](docs/PHASE2_QWEN_VALIDATION.md) |
+| 第二阶段离线测试结果与尚未进行的真实模型验收 | [第二阶段验证记录](docs/VERIFICATION_PHASE2_20261023.md) |
 | 实际测试结果、联调过程与尚未验证内容 | [第一阶段验证记录](docs/VERIFICATION_PHASE1_20261022.md) |
 | 原工作流版本的升级背景与兼容性 | [v0.2 升级说明](docs/UPGRADE_V02.md) |
 | 原有学习路线、API 示例与第三方接入 | [学习路线](docs/learning_path.md) · [API 示例](docs/api_examples.md) · [Dify / Coze](docs/dify_coze_setup.md) |

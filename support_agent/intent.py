@@ -1,7 +1,7 @@
 #判断用户问题属于什么类型，并尽量提取订单号
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 import re # 正则表达式 提取特定格式的内容
 
@@ -24,6 +24,7 @@ class IntentResult:
     order_id: Optional[str] = None
     confidence: float = 0.0
     reason: str = ""
+    model_trace: dict = field(default_factory=dict)
 
 
 def extract_order_id(text: str) -> Optional[str]: # 提取订单号
