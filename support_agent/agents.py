@@ -19,6 +19,7 @@ from .intent import (
 )
 from .tools import SupportTools  # 导入支持工具
 from .model_runtime import error_code
+from .order_facts import build_order_facts, receipt_summary
 
 
 @dataclass 
@@ -209,7 +210,11 @@ class ResponseAgent: # 回复生成
             order = state.tool_results.get("query_order", {})
             if order.get("ok"):
                 data = order["data"]
-                state.final_response = f"当前关联订单 {data['order_id']}，状态为【{data['status']}】。\n" + state.final_response
+                facts = build_order_facts(data)
+                header = f"当前关联订单 {data['order_id']}，状态为【{data['status']}】。"
+                if facts.receipt.conflicting_evidence:
+                    header = f"当前关联订单 {data['order_id']}，签收记录冲突，无法确认状态字段【{data['status']}】所示签收情况。"
+                state.final_response = header + "\n" + receipt_summary(facts) + "\n" + state.final_response
         state.add_step("ResponseAgent", {"final_response": state.final_response})
         return state
 

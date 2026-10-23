@@ -34,11 +34,11 @@
 .\.venv\Scripts\python.exe -m evaluation.verify_qwen --mode live --max-model-calls 8 --output .\evaluation\reports-e2e-live
 ~~~
 
-第二阶段开发没有执行真实live，没有消费API额度。旧命令默认仍仅intent，绝不隐式扩大到回复；新增 --components intent,reply 必须显式选择并提供 --max-model-calls。RAG、工作流A–J和6个故障注入始终离线，按组件 execution_mode / live_components 标明，不因顶层live就声称全部真实模型端到端通过。三轮是独立入口，不会由默认命令自动调用。
+早期第二阶段开发只做离线验证；用户随后实际执行了两次live三轮验证。本次收尾只读取已有证据，没有新消费。首次失败、复测单场景通过，见[收尾报告](PHASE2_RELEASE_20261023.md)。旧命令默认仍仅intent，绝不隐式扩大到回复；新增 --components intent,reply 必须显式选择并提供 --max-model-calls。RAG、工作流A–J、6个故障注入和14个签收固定文本回归始终离线，按组件execution_mode标明；三轮是独立入口，不由默认命令自动调用。
 
 模型分类实际保留受限意图集合、原规则高风险约束和失败回退；售后申请也保持确定性审核路由。live Accuracy 是“模型分类加规则约束/回退”的效果，不是纯模型原始能力。每条明细保留 rule_prediction / model_prediction / final_prediction、model_used / fallback_used / guard_applied / error_type / actual_model_calls；同批纯规则基线和原始模型成功子集指标分别记录，失败没有被删除或伪装成模型输出。
 
-第二阶段 model_calls 逐次记录尝试、错误和供应商实际返回的usage；无usage为null，usage_complete=false说明不完整，不把缺失当零，不估造费用。重试也计入请求硬预算，SDK隐藏重试关闭。客户端尝试计数是保守上界，不等于供应商账单。供应商API失败不能据此声称免费额度正常；当前尚无真实千问usage实测记录。
+第二阶段 model_calls 逐次记录尝试、错误和供应商实际返回的usage；无usage为null，usage_complete=false说明不完整，不把缺失当零，不估造费用。重试也计入请求硬预算，SDK隐藏重试关闭。客户端尝试计数是保守上界，不等于供应商账单。已有真实报告：首次usage合计4436 Token，仅3/4次返回usage，统计不完整；复测8658 Token，4/4次返回usage。两次cost均null，不能据此声称费用或免费额度。离线报告仍无真实Token测量。
 
 ## 三、数据集与标注责任
 
@@ -48,8 +48,11 @@
 | rag_cases.jsonl | 20 | 当前政策文件名 + gold_doc_id + expected_topic + 原文 gold_evidence |
 | workflow_cases.jsonl | 10 | A–J 明确预期状态、预期 Agent 和安全检查 |
 | reply_cases.jsonl | 6 | 订单/缺失信息/工具错误/政策追问/售后/越权的事实与状态检查 |
+| receipt_cases.jsonl | 14 | 签收三态、0天、未知天数、物流缺失与条件句的固定文本回归，不调用模型 |
 
 **它们是 AI 辅助编写的模拟开发标注，待独立人工复核。不是已完成的人类独立标注，不是真实客户数据，不是冻结测试集。**人工标注部分需要你或其他复核人逐条确认；可以在分支保存 reviewed_by / reviewed_at 和分歧决议后再称“人工复核集”。发现歧义先记录，不要为提高准确率直接改 gold。
+
+签收事实修复见 [RECEIPT_FACTS_FIX_20261023.md](RECEIPT_FACTS_FIX_20261023.md)。新receipt组件复用原回复事实检查，错误断言被按预期拒绝也计为场景通过；它始终离线，不扩大任何live组件或调用预算，不应解读为模型回答正确率。原始订单status=已发货且received_days=null时，派生签收状态必须为unknown。
 
 RAG 评测会核验 gold_evidence 确实存在于 gold_source，否则直接报错。报告记录数据文件与核心源码 SHA256；相同版本能追溯，但运行耗时不保证位级一致。单独训练/调参集和独立测试集本阶段尚未划分完成。
 
@@ -87,13 +90,15 @@ HTTP request_success 只计算2xx；预期跨用户404也在 request_failed 中�
 
 expected_agents 是响应里的 Agent/业务步骤名，不是底层 StateGraph 所有节点的完整 trace；observed_agents、checks、tool_calls 保留逐条依据。审批前 review 节点会 interrupt，直到恢复后才记录 ReviewAgent step。
 
-## 六、本次实际结果（2026-10-22，离线）
+## 六、本次收尾实际复跑（2026-10-23，离线）
 
 80条意图：73正确/7错误，Accuracy=0.9125，Macro-F1=0.9208089669。
 20条检索：Recall@1=0.95，@3=0.95，@5=1.0，MRR=0.9625。
 10条业务场景：10通过；8个结果completed，2个按预期待审核。
 请求22次：21次2xx、1次预期404；工具16次、15次ok、1次越权拒绝。
-模拟模型超时1次，回退1次；无实际Token统计。
+原工作流模拟模型超时1次，回退1次；另有回复6/6、故障注入6/6（27次本地模拟调用、0次供应商请求）、签收固定文本14/14、独立离线三轮1/1。整次离线模型请求为0，无实际Token统计。
+
+完整Pytest为158 passed / 0 failed（34.83秒），原103项测试不改；Vitest为19 passed / 0 failed，生产构建与pip check通过。真实报告已核对：30秒配置0/1、90秒配置1/1，两次各4次模型尝试。首次第二轮provider_error并非事实守卫拒绝；耗时接近超时值但根因未确认。90秒为用户那次进程覆盖，不是代码默认值。两份人工复核CSV各4行pending，reviewer与reviewed_at未填，不视为独立验收。
 
 耗时以 evaluation/reports/latest.json 本机最新报告为准，不能放进简历当作线上P95。summary.md 会列出7条意图错误和1条Top-3检索未命中；不删失败样例。
 
@@ -105,6 +110,6 @@ run_evaluation.py 管CLI、模式、数据/源码指纹与报告；intent_eval.p
 
 ## 八、面试可用表述
 
-“我把传统功能测试和Agent效果评测分开：前者验证权限、幂等与恢复；后者在模拟开发集评估8类意图、TF-IDF文档命中与业务场景。评测有失败明细、哈希与明确分母。目前是AI辅助标注、待人工复核，千问端到端和线上SLA还没验收。”
+“我把功能测试和Agent效果评测分开：前者验证权限、幂等与恢复；后者在模拟开发集评估8类意图、TF-IDF文档命中与业务场景。158项后端与19项前端回归通过；已用千问验证一个模拟三轮场景，保留首次provider_error与随后成功证据。对模型把‘已发货+空签收’推断成‘未签收’的问题，我统一了签收三态、Prompt约束和模板回退。数据集尚待独立人工复核，不把单场景通过说成生产准确率或SLA。”
 
-后续先建立独立复核/冻结集，按真实错误补充边界场景，再经授权运行真实千问及人工复核。manual_review.csv仅生成pending表，不自动把语言质量打满分；复核结果请另存，不要下一次运行覆盖已填写文件。是否升级检索应由错误分析决定，不先写未经运行的Dense对比提升数字。
+后续先建立独立复核/冻结集，按真实错误补充边界场景，再经授权扩大真实千问覆盖并人工复核。manual_review.csv仅生成pending表，不自动把语言质量打满分；复核结果请另存，不要下一次运行覆盖已填写文件。本次默认报告重跑前已备份到本地evaluation/reports-pre-release-20261023-archive，已有两份live证据保持原样。是否升级检索应由错误分析决定，不先写未经运行的Dense对比提升数字。

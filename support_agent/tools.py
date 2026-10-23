@@ -5,6 +5,7 @@ from typing import Dict, Optional
 
 from .api_client import BusinessAPIClient, BusinessAPIError
 from .rag import PolicyKnowledgeBase # 导入政策知识库
+from .order_facts import build_order_facts
 
 
 class SupportTools:
@@ -18,7 +19,7 @@ class SupportTools:
         """查询订单状态。"""
         try:
             data = self.api.query_order(order_id)
-            return {"ok": True, "data": data}
+            return {"ok": True, "data": data, "facts": build_order_facts(data).model_dump()}
         except BusinessAPIError as exc:
             return {"ok": False, "error": str(exc)}
 

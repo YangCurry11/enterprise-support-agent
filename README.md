@@ -1,7 +1,7 @@
 # ServiceFlow · 企业客服多 Agent 系统
 
 [![CI](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml)
-[运行指南](docs/PHASE1_UPGRADE.md) · [多轮架构](docs/MULTI_TURN_ARCHITECTURE.md) · [评测说明](docs/EVALUATION_GUIDE.md) · [千问第二阶段](docs/PHASE2_QWEN_VALIDATION.md) · [验证记录](docs/VERIFICATION_PHASE1_20261022.md)
+[运行指南](docs/PHASE1_UPGRADE.md) · [多轮架构](docs/MULTI_TURN_ARCHITECTURE.md) · [评测说明](docs/EVALUATION_GUIDE.md) · [千问第二阶段](docs/PHASE2_QWEN_VALIDATION.md) · [第二阶段收尾记录](docs/PHASE2_RELEASE_20261023.md)
 
 一个基于 **Vue 3 + TypeScript、FastAPI、LangGraph 与 SQLite** 的客服工作流项目：在同一会话中查询订单、追问政策、申请售后，并将需要业务写入的请求交给人工审核。
 
@@ -57,6 +57,7 @@
 | 幂等与恢复 | request_id 去重、固定消息 ID、工单唯一键、SQLite Checkpointer | 网络丢响应后重试，避免重复消息与重复工单 |
 | 政策 RAG | 真实政策文件、TF-IDF Top-K 检索、来源与片段展示 | 把回答依据展示出来，不只输出一段无来源的话 |
 | 模型回退 | 可配置兼容 API；分类回退规则，回复失败保留模板 | 模型不可用时仍能运行确定性业务，轨迹记录实际模式 |
+| 签收事实边界 | 本轮授权工具生成 received / not_received / unknown 三态，区分 null 与0天 | 已发货或缺签收记录不能被模型解释成“尚未签收”；政策条件不等于订单事实 |
 | 效果评测 | 意图同批规则/模型对比、政策检索、回复/权限/审核、离线故障与三轮工具；JSON / CSV / Markdown / 待人工表 | 将功能测试、模型效果与人工质量验收分开；显式组件、含重试的调用预算 |
 
 这里的 Multi-Agent 是**显式分工、受约束的业务工作流**，不是无限循环的自主规划器。当前也没有引入向量数据库、Embedding 混合检索或模型微调。
@@ -113,6 +114,9 @@ flowchart TD
     AGENTS --> TOOLS["ScopedTools / 客户归属校验"]
     TOOLS --> BIZ[("business.db / 模拟订单与工单")]
     TOOLS --> RAG["TF-IDF / 仓库政策文件"]
+    AGENTS --> FACTS["OrderFacts / 本轮已知事实、未知字段、政策条件"]
+    FACTS --> MODEL["Qwen 辅助分类与回复 / 有界调用"]
+    MODEL --> SAFETY["最小事实检查 / 失败保留模板"]
     RUN --> REVIEW["售后、投诉等需要人工审核的请求"]
     REVIEW --> PAUSE["interrupt 暂停 / 客服审批"]
     PAUSE --> RESUME["Command resume / 同一 run 继续"]
@@ -211,9 +215,9 @@ pnpm.cmd dev
 .\.venv\Scripts\python.exe -m evaluation.run_evaluation
 ~~~
 
-默认生成 evaluation/reports/latest.json、details.csv、summary.md、manual_review.csv；这些生成文件被 Git 忽略。第二阶段新增6个回复/业务安全场景与6类离线故障；详细步骤见[第二阶段说明](docs/PHASE2_QWEN_VALIDATION.md)。
+默认生成 evaluation/reports/latest.json、details.csv、summary.md、manual_review.csv；这些生成文件被 Git 忽略。第二阶段新增6个回复/业务安全场景、6类离线故障和14个签收事实固定文本回归；详细步骤见[第二阶段说明](docs/PHASE2_QWEN_VALIDATION.md)。有旧报告或已填写的人工复核表时，请先备份或指定新的 --output 目录。
 
-先执行无网络的配置预检。下面的live命令需使用者自行授权执行，会消耗供应商额度；本阶段开发没有运行真实模型：
+先执行无网络的配置预检。下面的live命令需使用者自行授权执行，会消耗供应商额度。本次收尾只复核用户已经运行的两份真实报告，没有额外调用模型：
 
 ~~~powershell
 # 只预检格式，不创建模型客户端、不联网
@@ -232,13 +236,15 @@ pnpm.cmd dev
 
 ### 已记录的离线基线
 
-以下来自 2026-10-22 的[验证记录](docs/VERIFICATION_PHASE1_20261022.md)，不是生产业务指标。
+以下为 2026-10-23 收尾时重新执行的离线结果，与第一阶段基线一致，不是生产业务指标。
 
 | 评测对象 | 样本量 | 实测结果 |
 |---|---:|---|
 | 规则意图识别 | 80 | Accuracy 91.25%；Macro-F1 0.9208 |
 | TF-IDF 政策检索 | 20 | Recall@1 / @3 / @5：95% / 95% / 100%；MRR 0.9625 |
 | 工作流场景 | 10 | 10/10 符合预期，包含越权拒绝、等待审核、重复请求和模型超时回退 |
+| 回复 / 离线故障 / 签收回归 | 6 / 6 / 14 | 6/6、6/6、14/14 符合预期；错误文本被正确拒绝也算回归通过 |
+| 独立三轮离线验证 | 1 | 1/1，含原审核、SQLite恢复、权限和幂等；真实模型请求0 |
 
 **标注由 AI 辅助编写，尚未经独立人工复核；不是实际客户数据或冻结的独立测试集。**RAG 的 gold 是源文档，K 为返回片段数，文档命中不等于答案事实正确。工作流 10/10 也不等于所有 run 都完成，其中包含按预期停在审核节点的场景。错误样例保留在明细中，不删失败案例凑分。
 
@@ -254,7 +260,20 @@ pnpm.cmd test
 pnpm.cmd build
 ~~~
 
-第二阶段发布前重新验证：后端 **103 项**、前端 **19 项**测试通过，生产构建和依赖检查成功；工作流10/10、回复6/6、故障注入6/6、独立三轮1/1符合离线预期，真实模型请求为0。完整记录见[第二阶段验证记录](docs/VERIFICATION_PHASE2_20261023.md)。代码与测试记录按用户授权同步GitHub；本提交的云端结果请查看 [GitHub Actions](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml)，不要把本地通过直接等同于云端通过。完整指标定义和统计分母见[评测指南](docs/EVALUATION_GUIDE.md)。
+第二阶段最终收尾重新验证：后端 **158 passed / 0 failed（34.83秒）**、前端 **19 passed / 0 failed**，生产构建（37模块）和 pip check 成功。原103项后端测试和断言保留，签收修复增加55个执行用例（含参数化）。完整记录见[第二阶段收尾报告](docs/PHASE2_RELEASE_20261023.md)；[早期103项验证记录](docs/VERIFICATION_PHASE2_20261023.md)作为历史保留。云端结果应核对本次提交 SHA 对应的 [GitHub Actions](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml)，本地通过不自动等于云端通过。
+
+### 已有真实千问验证：一次失败、一次通过
+
+已核对本地两份原始报告，模型均为 **qwen3.7-flash-2026-07-15**，端点主机为 dashscope.aliyuncs.com。此处是历史实测配置，不保证供应商将来仍提供同名模型或额度。
+
+| 验证 | 进程配置 | 实际结果 |
+|---|---|---|
+| 首次 | timeout=30秒，额外重试0 | live，端到端0/1；4次调用尝试，第二轮回复 provider_error，约30031.86ms，回退模板 |
+| 复测 | timeout=90秒，额外重试0 | live，端到端1/1；4次调用尝试，前两轮 llm_generated；售后与批准后结果为确定性文本 |
+
+复测正确表达了 ORD1001 的“已发货，但签收未知”，引用 refund_policy.md，审核前零工单，客户审批403、其他客户读历史404；恢复原 run 后只有一张工单，重复请求不重放模型。首次错误与30秒设置可能相关，但报告只记录 provider_error，不能断言底层一定是 timeout 或事实校验误判。90秒只用于该次进程，代码默认仍是20秒。
+
+两份报告的人工复核均仍为 pending；单个模拟三轮场景通过不等于模型整体准确率或生产验收。原始报告留在本地忽略目录，只公开经过检查的[结果与Token汇总](docs/PHASE2_RELEASE_20261023.md)。
 
 ## 项目结构
 
@@ -271,6 +290,7 @@ enterprise-support-agent/
 │   ├── scoped_tools.py        # 服务端工具归属与写入约束
 │   ├── llm_client.py          # 模型适配、受限分类与回复
 │   ├── model_runtime.py       # 明确配置、有界重试、错误分类、调用硬预算
+│   ├── order_facts.py         # 当前订单事实、签收三态与未知字段
 │   ├── reply_safety.py        # 最小事实防线，不替代人工语义复核
 │   ├── rag.py                 # TF-IDF 政策检索
 │   └── business_db.py         # SQLite 模拟业务数据
@@ -350,7 +370,8 @@ docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/va
 
 - 只运行一个 API worker；进程内 RLock 不是分布式锁。
 - 静态开发身份、SQLite、本地模拟业务不等于完成企业生产上线。
-- 真实千问三轮端到端、生产 Token/成本、限流、并发压力和灾难恢复仍需专项验证。
+- 已通过一个模拟场景的真实千问三轮核心链路；独立人工质量复核、生产 Token/成本、限流、并发压力和灾难恢复仍未验收。
+- 结构化事实与有限文本规则只能检查部分幻觉，不是完整语义证明；退款政策条件不能替代真实业务审批。
 - 对外部署前需要企业身份、密钥管理、数据脱敏/保留策略、真实业务适配与运维监控。
 - 旧 agent_logs.db 保留，不自动导入新工作流；已有业务表与会话表采用增量迁移，不能清库“升级”。
 - Dify / Coze 是可选接入方式，不能绕过同样的鉴权和人工审核。
@@ -363,10 +384,12 @@ docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/va
 | 四种 ID、数据库表、上下文、检查点与恢复边界 | [多轮架构说明](docs/MULTI_TURN_ARCHITECTURE.md) |
 | 如何跑评测，Accuracy / F1 / Recall / P95 怎么定义 | [评测指南](docs/EVALUATION_GUIDE.md) |
 | 配置预检、显式在线组件、物理调用预算、三轮与人工质量复核 | [第二阶段千问验证](docs/PHASE2_QWEN_VALIDATION.md) |
-| 第二阶段离线测试结果与尚未进行的真实模型验收 | [第二阶段验证记录](docs/VERIFICATION_PHASE2_20261023.md) |
+| 本次158项回归、真实模型失败/成功证据、面试表述与发布边界 | [第二阶段收尾记录](docs/PHASE2_RELEASE_20261023.md) |
+| 签收三态、Prompt、事实校验与55个新增测试 | [签收事实修复](docs/RECEIPT_FACTS_FIX_20261023.md) |
+| 第二阶段早期103项离线记录（历史，不是本次复跑） | [第二阶段验证记录](docs/VERIFICATION_PHASE2_20261023.md) |
 | 实际测试结果、联调过程与尚未验证内容 | [第一阶段验证记录](docs/VERIFICATION_PHASE1_20261022.md) |
 | 原工作流版本的升级背景与兼容性 | [v0.2 升级说明](docs/UPGRADE_V02.md) |
 | 原有学习路线、API 示例与第三方接入 | [学习路线](docs/learning_path.md) · [API 示例](docs/api_examples.md) · [Dify / Coze](docs/dify_coze_setup.md) |
 | 本次页面图的采集环境与复现步骤 | [截图说明](docs/screenshots/README.md) |
 
-后续迭代优先补齐人工复核的独立评测集、真实模型端到端验证与业务适配，再依据错误分析决定是否升级检索或调度架构。
+后续迭代优先补齐人工复核的独立评测集、多场景真实模型验证与业务适配，再依据错误分析决定是否升级检索或调度架构。本次没有开发第三阶段功能。

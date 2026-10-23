@@ -1,5 +1,28 @@
 """确定性最小事实防线；不是完整语义裁判，仍需要独立人工复核。"""
 import re
+from .order_facts import build_order_facts
+
+
+# 最小断言识别只提取签收极性/天数；是否有证据由统一业务事实判断，
+# 不把“尚未签收”这句话一律禁掉（明确未签收时允许），也不误禁条件句。
+_RECEIPT_CLAIM = re.compile(
+    r"(?P<polarity>尚未|还未|仍未|并未|没有|还没|未|没|已经|现已|已|完成)"
+    r"(?:完成)?(?:签收|收货|收到(?:货物|商品|包裹|货))(?:[了\s]*(?P<days>\d+)\s*天)?"
+    r"|(?:签收|收货)(?:已经|已有|了)?(?P<bare_days>\d+)\s*天"
+)
+
+
+def _receipt_claims(text):
+    for clause in re.split(r"[，,。；;！？!?\n]|但是|不过|然而|但", text):
+        for match in _RECEIPT_CLAIM.finditer(clause):
+            before, after = clause[:match.start()], clause[match.end():]
+            conditional = any(word in before for word in ("如果", "假如", "假设", "倘若", "若"))
+            uncertain = any(word in before for word in ("是否", "请问", "无法确认", "不能确认", "无法确定", "不能确定", "不确定", "尚不清楚", "需核实", "未能确认"))
+            if conditional or uncertain or after.lstrip("了 ").startswith(("后", "时", "内", "的话", "则", "吗", "么")):
+                continue
+            state = "received" if match.group("polarity") in {None, "已", "已经", "现已", "完成"} else "not_received"
+            days = match.group("days") or match.group("bare_days")
+            yield state, int(days) if days is not None else None
 
 
 def reply_violations(text, order=None, documents=None, ticket=None):
@@ -30,4 +53,10 @@ def reply_violations(text, order=None, documents=None, ticket=None):
         errors.append("unsupported_financial_action")
     if not ticket and re.search(r"(?:已|已经)(?:为您)?创建.{0,8}工单", text):
         errors.append("unsupported_ticket_action")
-    return errors
+    receipt = build_order_facts(order).receipt
+    for state, days in _receipt_claims(text):
+        if state != receipt.state:
+            errors.append("unsupported_receipt_state")
+        if days is not None and days != receipt.received_days:
+            errors.append("unsupported_received_days")
+    return list(dict.fromkeys(errors))

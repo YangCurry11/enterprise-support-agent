@@ -19,7 +19,8 @@ def facts(result):
     pending = result.get("status") in {"awaiting_review", "awaiting_input"}
     violations = reply_violations(result.get("final_response", ""), order.get("data") if order.get("ok") and not pending else None,
                                   result.get("retrieved_docs") if not pending else None, ticket.get("data") if ticket.get("ok") else None)
-    return {"nonempty_response": bool(result.get("final_response")), "minimal_fact_checks": not violations}, violations
+    return {"nonempty_response": bool(result.get("final_response")), "minimal_fact_checks": not violations,
+            "receipt_facts_consistent": not {"unsupported_receipt_state", "unsupported_received_days"}.intersection(violations)}, violations
 
 
 def evaluate(cases, live=False):
@@ -85,6 +86,7 @@ def evaluate(cases, live=False):
                          "status": result.get("status"), "results": results, "tool_calls": box.tool_calls,
                          "requests": box.requests, "model_used": mode == "llm_generated",
                          "fallback_used": any(response_mode(r)[0] == "fallback_template" for r in results),
+                         "model_fact_violations": detail.get("model_trace", {}).get("fact_violations", []),
                          "latency_ms": (time.perf_counter() - started) * 1000,
                          "manual_review_status": "pending", "execution_mode": "live" if live else "offline"})
     passed = sum(row["passed"] for row in rows)

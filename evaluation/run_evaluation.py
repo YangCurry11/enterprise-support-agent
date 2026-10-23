@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 from unittest.mock import patch
-from .evaluators import intent_eval, rag_eval, workflow_eval, reply_eval
+from .evaluators import intent_eval, rag_eval, workflow_eval, reply_eval, receipt_eval
 from . import failure_checks
 from support_agent.model_runtime import ModelSettings, ModelConfigError, CallLedger, model_calls
 
@@ -76,6 +76,8 @@ def write_artifact(report, output):
                 summary += [f"实际生成 {metrics.get('generated_reply_count', 0)} 条，模板回退 {metrics.get('fallback_count', 0)} 条；人工已复核 {metrics.get('manual_reviewed', 0)} 条。", ""]
             if key == "faults":
                 summary += [f"真实供应商请求 {metrics.get('actual_provider_calls', 0)} 次；本地模拟调用 {metrics.get('simulated_model_calls', 0)} 次。", ""]
+            if key == "receipt":
+                summary += ["固定合成文本的签收三态/天数回归；错误文本被按预期拦截也计为场景通过，不代表真实模型回答正确率。", ""]
             if key == "e2e":
                 summary += ["| 检查 | 结果 |", "|---|---|"]
                 for row in report[key]["cases"]:
@@ -152,19 +154,21 @@ def main(argv=None):
     workflow=workflow_eval.evaluate(load("workflow_cases.jsonl"))
     rag["execution_mode"] = workflow["execution_mode"] = "offline"
     faults=failure_checks.evaluate()
+    receipt=receipt_eval.evaluate(load("receipt_cases.jsonl"))
     report={"schema_version":2,"generated_at":datetime.now(timezone.utc).isoformat(),"mode":args.mode,
             "data_provenance":"AI-assisted synthetic development labels; NOT independently human-reviewed; NOT production data",
             "live_components":components if args.mode=="live" else [],
             **fingerprints(), "configuration": settings.public() if settings else None,
             "evaluation_overrides": {"intent_live": args.mode == "live" and "intent" in components,
                                      "reply_eval_intent_live": False, "sdk_hidden_retries": 0},
-            "model_calls": ledger.summary(), "intent":intent,"rag":rag,"workflow":workflow,"reply":reply,"faults":faults}
+            "model_calls": ledger.summary(), "intent":intent,"rag":rag,"workflow":workflow,"reply":reply,"faults":faults,"receipt":receipt}
     write_reports(report,args.output.resolve())
     print(json.dumps({"output":str(args.output.resolve()),"intent_accuracy":intent["metrics"]["accuracy"],
                       "workflow_passed":workflow["metrics"]["passed"],"workflow_total":workflow["metrics"]["sample_count"],
                       "reply_passed":reply["metrics"]["passed"], "faults_passed":faults["metrics"]["passed"],
+                      "receipt_passed":receipt["metrics"]["passed"],
                       "actual_model_calls":len(ledger.calls)},ensure_ascii=False))
-    return 0 if all(report[key]["metrics"]["passed"] == report[key]["metrics"]["sample_count"] for key in ("workflow", "reply", "faults")) else 1
+    return 0 if all(report[key]["metrics"]["passed"] == report[key]["metrics"]["sample_count"] for key in ("workflow", "reply", "faults", "receipt")) else 1
 
 
 if __name__=="__main__":

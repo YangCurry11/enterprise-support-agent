@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from . import business_db
 from .rag import PolicyKnowledgeBase
+from .order_facts import build_order_facts
 
 
 @lru_cache(maxsize=1)
@@ -19,7 +20,7 @@ class ScopedTools:
         order = business_db.get_order(order_id)
         if not order or order["user_id"] != self.user_id:
             return {"ok": False, "error": "订单不存在或当前用户不可访问", "code": "order_unavailable"}
-        return {"ok": True, "data": order}
+        return {"ok": True, "data": order, "facts": build_order_facts(order).model_dump()}
 
     def search_policy(self, query: str, top_k: int = 3):
         return {"ok": True, "data": policy_index().search(query, top_k=top_k)}

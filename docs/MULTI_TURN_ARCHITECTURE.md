@@ -2,6 +2,8 @@
 
 第二阶段保持本页会话/检查点架构不变，在模型边界与离线/在线评测上增量扩展，见 [千问验证说明](PHASE2_QWEN_VALIDATION.md)。
 
+2026-10-23收尾已加入本轮订单结构化事实约束，不改变以下会话、路由、审核或持久化契约。重新执行的测试与既有真实模型证据见[第二阶段收尾报告](PHASE2_RELEASE_20261023.md)。
+
 ## 1. 四种业务 ID 和一条关键不变量
 
 | ID | 谁生成/何时生成 | 保存在哪里 | 重试/澄清 |
@@ -84,6 +86,17 @@ chat_context.ContextSettings.read 在后端启动与解析时真实读取：
 只有工具 query_order 返回 ok 的结果能更新 verified_order_id。对明确但无权订单会清除确认值，不能“沿用之前的授权”访问新编号。每轮 PolicyAgent / OrderAgent / ReviewAgent / Ticket 工具仍做实际归属校验。
 
 history 里的角色文本和模型输出不参与服务器身份判定。generate_customer_reply 的提示明确声明历史不可信；这是一层提示约束，不应冒充完备的提示注入防御，真正的边界在服务器鉴权与工具。
+
+### 订单事实不是会话推测
+
+ScopedTools.query_order先校验客户归属，再在原始data外附加OrderFacts；兼容SupportTools也使用同一构造器。订单数据库和原HTTP业务字段不变。模型入口与回复校验均从本轮data重新构造事实，不相信历史文本或外部传入的facts对象。
+
+- status=已发货且received_days=null：receipt.state=unknown，不能推出未签收。
+- 明确已签收但天数null：可以说已签收，不可编造天数；合法0天不能用真值判断误当未知。
+- 明确未签收且无相反证据：not_received；负数、bool、字符串、小数不冒充合法签收天数；矛盾证据回到unknown并要求核实。
+- 缺物流不改变签收三态。refund_eligibility始终not_determined，政策条件不等于订单已满足条件或审批结论。
+
+OrderFacts → Prompt区分已知/未知/政策条件 → 有限断言检查 → 不安全输出回退原模板。该链路不改变LangGraph节点、thread_id、审批resume或工单唯一键，也不允许模型授权写入。规则不是完整自然语言语义判定，少见表达仍需独立复核。
 
 ## 5. 三轮与澄清的区别
 
