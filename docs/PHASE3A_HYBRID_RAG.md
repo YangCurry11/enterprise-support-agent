@@ -134,11 +134,13 @@ Embedding客户端独立于ChatOpenAI和LLM CallLedger；SDK max_retries=0，重
 
 最终审查补充SDK资源所有权：客户端自建的SDK在每次embed操作内用上下文管理器，成功、异常或预算拒绝后均退出关闭，不缓存未释放的连接池；外部注入SDK仍归调用者管理。离线/查询向量缓存不因此失效，原预算和调用接口不变。
 
-usage仅记录响应实际返回的prompt_tokens和total_tokens，映射为input_tokens/total_tokens；缺失为null，部分缺失则usage_complete=false。失败响应若返回了可读usage也不会丢弃。没有价格规则，cost=null。不把Embedding统计混进聊天调用次数。
+usage仅使用供应商实际返回值：通常由prompt_tokens/total_tokens映射；text-embedding-v4按官方input-only合同兼容仅有total_tokens的响应，将该真实值计入input_tokens/total_tokens。缺失或畸形usage仍为null，部分缺失则usage_complete=false；已经取得响应但向量校验失败时仍保留该响应的usage。网络异常没有usage时不假定免费。原ledger的cost仍为null；验收准备工具可按明确地域价格对已记录用量估算费用，不是最终账单。不把Embedding统计混进聊天调用次数。
 
 远程构建只读取仓库data/policies/*.md。本轮只包含模拟政策；接企业真实文档前必须重新评估隐私、地域、授权和跨境传输要求。远程查询会发送问题文字（不发送会话历史），先最小化ORD/TKT/用户/常见物流编号、手机号、邮箱和长数字；这只是有限模式，不是完备PII检测，姓名、地址等未必识别。未做合规确认的真实客户内容不得启用远程查询。
 
 ## 7. 手动启用真实Embedding（本轮没有执行）
+
+先阅读[真实Embedding验收准备报告](PHASE3A_LIVE_ACCEPTANCE_PREPARATION.md)。本节命令语法已核对，但不是运行授权。当前独立Embedding配置缺失，精确Token/人民币硬上限尚无运行时预扣机制；在配置、外发授权与预算门禁满足前，不得执行live命令。验收优先使用新报告中的“一次6批构建+两次离线cache对照”，不要把下列两种构建方案连续执行。
 
 2026-10-24查阅[百炼OpenAI兼容Embedding文档](https://www.alibabacloud.com/help/en/model-studio/embedding-interfaces-compatible-with-openai)：text-embedding-v4是独立文本向量候选；已知维度64/128/256/512/768/1024/1536/2048，每批最多10条。本文示例选1024，不代表已验证你的账户授权、额度、地域或未来兼容性。请在控制台确认向量模型权限，不能把聊天模型当向量模型。
 

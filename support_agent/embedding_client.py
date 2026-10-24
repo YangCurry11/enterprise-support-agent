@@ -91,9 +91,14 @@ class EmbeddingClient:
                 result = client.embeddings.create(model=self.settings.model, input=texts,
                     dimensions=self.settings.dimensions, encoding_format="float")
                 usage = getattr(result, "usage", None)
-                if usage and all(type(getattr(usage, k, None)) is int and getattr(usage, k) >= 0
-                                 for k in ("prompt_tokens", "total_tokens")):
-                    row["usage"] = {"input_tokens": usage.prompt_tokens, "total_tokens": usage.total_tokens}
+                prompt, total = getattr(usage, "prompt_tokens", None), getattr(usage, "total_tokens", None)
+                # Bailian v4 documents input-only billing and may omit prompt_tokens.
+                # Use provider-reported total, never a character/token estimate. Do not
+                # extrapolate this contract to unknown models or malformed usage.
+                if prompt is None and self.settings.model == "text-embedding-v4":
+                    prompt = total
+                if type(prompt) is int and type(total) is int and 0 <= prompt <= total:
+                    row["usage"] = {"input_tokens": prompt, "total_tokens": total}
                 data = sorted(result.data, key=lambda item: item.index)
                 if [item.index for item in data] != list(range(len(texts))):
                     raise EmbeddingError("invalid_response")

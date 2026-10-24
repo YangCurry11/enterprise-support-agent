@@ -42,7 +42,7 @@ def write_comparison(report, output):
     for dataset, modes in report["datasets_results"].items():
         for mode, result in modes.items():
             lines.append(f"- {dataset}/{mode}: " + (", ".join(result["failures"]) or "本集合已覆盖检查通过"))
-            lines.append(f"  无依据问题 {result['metrics']['negative_count']} 条，空召回正确 {result['metrics']['no_support_correct']} 条。正样本Recall不包含负样本，负样本返回相关度不等于存在政策依据。")
+            lines.append(f"  无依据问题 {result['metrics']['negative_count']} 条，负例空召回数 {result['metrics']['no_support_correct']} 条（仅候选诊断，不是政策证据判定）。正样本Recall不包含负样本；是否存在可支持回答的证据须单独人工复核。")
     lines += ["", "三种模式共享相同语料、原切分、问题与gold；Dense/Hybrid共享查询向量缓存，顺序执行，计时不用于声称公平速度提升或生产SLA。", "",
               "融合分不是置信度。没有输出答案事实正确率。人工复核尚未完成。费用为null；usage只使用供应商实际返回。"]
     (output / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
