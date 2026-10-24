@@ -73,6 +73,7 @@ def sandbox(*, live=False, intent_live=False):
     with _sandbox_lock, tempfile.TemporaryDirectory(prefix="serviceflow-phase2-") as directory, ExitStack() as stack:
         root = Path(directory)
         env = {"LLM_INTENT_ENABLED": "true" if intent_live else "false", "SUPPORT_AUTH_TOKENS": tokens,
+               "RAG_MODE": "tfidf", "EMBEDDING_ENABLED": "false", "RAG_REMOTE_QUERY_ENABLED": "false",
                "SUPPORT_ENV": "development", "CHAT_CONTEXT_ENABLED": "true",
                "CHAT_HISTORY_WINDOW": "10", "CHAT_MAX_CONTEXT_CHARS": "12000"}
         if not live:
@@ -82,6 +83,10 @@ def sandbox(*, live=False, intent_live=False):
                                     (business_db, "DB_PATH", root / "business.db"), (api, "DATA_DIR", root)):
             stack.enter_context(patch.object(module, name, value))
         previous = {key: getattr(api.app.state, key, None) for key in ("workflows", "conversations")}
+        # Never reuse a globally cached live-enabled KB in an offline sandbox.
+        from support_agent.rag import PolicyKnowledgeBase
+        from support_agent.rag_config import RagSettings
+        stack.enter_context(patch("support_agent.scoped_tools.policy_index", lambda: PolicyKnowledgeBase(settings=RagSettings())))
         try:
             with TestClient(api.app) as client:
                 api.app.state.workflows = WorkflowService(root, tools_factory=ObservedTools)

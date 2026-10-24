@@ -64,3 +64,4 @@ evaluation/reports/*
 evaluation/reports-*/
 .pytest_tmp*/
 .impeccable/review/
+.rag_cache/

@@ -47,5 +47,6 @@ class SupportTools:
 
     def search_policy(self, query: str, top_k: int = 3) -> Dict:
         """检索退款、物流、售后等政策知识库。"""
-        docs = self.kb.search(query, top_k=top_k)
-        return {"ok": True, "data": docs}
+        if isinstance(self.kb, PolicyKnowledgeBase):
+            return {"ok": True, **self.kb.search_with_trace(query, top_k=top_k)}
+        return {"ok": True, "data": self.kb.search(query, top_k=top_k)}

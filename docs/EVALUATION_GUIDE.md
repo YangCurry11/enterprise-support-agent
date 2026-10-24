@@ -1,5 +1,23 @@
 # Agent 评测：如何运行、怎么看、面试怎么讲
 
+Phase 3A新增独立三模式对照入口，原命令仍固定为离线TF-IDF基线，不因服务端开启Embedding而偷偷外发查询。最终审查241项后端、23项前端与离线结果见[3A验证记录](PHASE3A_VERIFICATION.md)；首次3A的233项和本文后面的第二阶段158/19数据保留为历史。
+
+## Phase 3A：新增的公平检索比较
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluation.compare_rag --mode offline
+```
+
+默认在全新evaluation/reports-rag-compare-offline-mock-*目录写latest.json、details.csv、summary.md。显式--output也必须是未存在的新目录，避免覆盖失败记录。保留原rag_cases.jsonl的20题，不改正式政策；单独rag_hard_cases.jsonl有16题（13正例、3无依据），gold_evidence先核验确实在原文片段中，再做预测。gold_chunk_id为空时，按gold_source+原始证据确定所有合法片段ID，不从检索输出倒推gold。所有新标注仍pending human review，不是独立人工冻结测试集。
+
+对同样语料、切分和问题分别测tfidf / dense / hybrid，报告来源为tfidf_baseline、mock_dense、real_cached_dense或live_dense。默认Mock使用128维字符哈希，不是语义Embedding模型；其优劣只说明该Mock设定下的融合结果，不能宣传真实模型收益。
+
+文档Recall@K/MRR仍按返回的前K个片段source命中文档计算；证据Hit@K/evidence_mrr按包含gold_evidence的准确chunk_id计算。两者均不等于最终答案正确性。负例不进入正例Recall分母，另记negative_count、negative_return_rate和no_support_correct；本轮三种模式对3个负例均有召回，这些失败保留。
+
+timing对所有查询（包括负例）统计mean、nearest-rank P50/P95；Dense/Hybrid共用查询向量缓存且顺序执行，预建索引时间不含在检索时间内，不能据此宣称公平速度提升或线上SLA。实际配置模式、实际模式、fallback_reason、命中文档与片段逐条保留；只要出现Dense/Hybrid回退，命令退出1，不能把TF-IDF结果当Dense成功。检索未命中属于测量结果，不通过篡改gold让命令凑100%。
+
+离线--source cache需要有效的真实来源政策索引和已缓存的查询向量；不会调用远程补查询。缺查询向量时记录回退并退出1。默认原Agent评测、故障注入、三轮验证均显式隔离为TF-IDF，即使进程环境配置了远程Embedding也不会外发。真实构建与live对照还必须加--allow-remote和独立--max-embedding-calls；完整操作见[3A手册](PHASE3A_HYBRID_RAG.md)。
+
 ## 一、先运行默认离线评测
 
 在项目根目录，沿用原虚拟环境：

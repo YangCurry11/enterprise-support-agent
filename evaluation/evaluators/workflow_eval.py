@@ -17,7 +17,11 @@ def evaluate(cases):
     tokens = '{"eval-customer":{"user_id":"U1001","role":"customer"},"eval-other":{"user_id":"U1002","role":"customer"},"eval-reviewer":{"user_id":"S1001","role":"support"}}'
     with tempfile.TemporaryDirectory(prefix="serviceflow-eval-") as directory, ExitStack() as stack:
         root = Path(directory)
-        stack.enter_context(patch.dict("os.environ", {"LLM_API_KEY":"", "LLM_INTENT_ENABLED":"false", "SUPPORT_ENV":"development", "SUPPORT_AUTH_TOKENS":tokens}))
+        stack.enter_context(patch.dict("os.environ", {"LLM_API_KEY":"", "LLM_INTENT_ENABLED":"false", "RAG_MODE":"tfidf", "EMBEDDING_ENABLED":"false", "RAG_REMOTE_QUERY_ENABLED":"false", "SUPPORT_ENV":"development", "SUPPORT_AUTH_TOKENS":tokens}))
+        from support_agent.rag import PolicyKnowledgeBase
+        from support_agent.rag_config import RagSettings
+        kb = PolicyKnowledgeBase(settings=RagSettings())
+        stack.enter_context(patch("support_agent.scoped_tools.policy_index", lambda: kb))
         for module, name, value in ((config,"DATA_DIR",root),(business_db,"DATA_DIR",root),(business_db,"DB_PATH",root/"business.db"),(api,"DATA_DIR",root)):
             stack.enter_context(patch.object(module,name,value))
         class ObservedTools(ScopedTools):
