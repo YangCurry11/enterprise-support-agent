@@ -17,7 +17,7 @@ function formatScore(score?: number): string { return typeof score === "number" 
     </section>
     <section v-if="result.retrieved_docs.length" class="card evidence-card">
       <div class="section-head"><h2>政策检索依据</h2><span class="panel-count">{{ result.retrieved_docs.length }} 条片段</span></div>
-      <ol class="evidence-list"><li v-for="(document, index) in result.retrieved_docs" :key="`${document.source}-${index}`"><h3>{{ document.source }}</h3><p>{{ document.text }}</p><div class="evidence-meta">检索相似度 {{ formatScore(document.score) }} · 分数不代表答案置信度</div></li></ol>
+      <ol class="evidence-list"><li v-for="(document, index) in result.retrieved_docs" :key="`${document.source}-${index}`"><h3>{{ document.source }}</h3><p>{{ document.text }}</p><div class="evidence-meta">{{ document.score_type === 'rrf' ? 'RRF 排名融合分' : document.score_type === 'dense_cosine' ? 'Dense 余弦相似度' : 'TF-IDF 检索相似度' }} {{ formatScore(document.score) }} · 分数不代表答案置信度</div></li></ol>
     </section>
     <details class="card raw-card"><summary>查看工具执行数据<AppIcon name="down" /></summary><pre>{{ JSON.stringify(result.tool_results, null, 2) }}</pre></details>
   </div>

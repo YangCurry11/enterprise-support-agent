@@ -23,7 +23,7 @@ class ScopedTools:
         return {"ok": True, "data": order, "facts": build_order_facts(order).model_dump()}
 
     def search_policy(self, query: str, top_k: int = 3):
-        return {"ok": True, "data": policy_index().search(query, top_k=top_k)}
+        return {"ok": True, **policy_index().search_with_trace(query, top_k=top_k)}
 
     def create_ticket(self, user_id: str, issue_type: str, description: str,
                       order_id: str | None = None, priority: str = "normal"):

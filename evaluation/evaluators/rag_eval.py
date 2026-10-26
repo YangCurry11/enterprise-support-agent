@@ -4,7 +4,8 @@ from .metrics import retrieval_metrics
 
 def evaluate(cases):
     from support_agent.rag import PolicyKnowledgeBase
-    kb = PolicyKnowledgeBase()
+    from support_agent.rag_config import RagSettings
+    kb = PolicyKnowledgeBase(settings=RagSettings())  # Historical baseline always offline TF-IDF.
     rows = []
     for case in cases:
         document = kb.policy_dir / case["gold_source"]

@@ -4,6 +4,8 @@
 
 2026-10-23收尾已加入本轮订单结构化事实约束，不改变以下会话、路由、审核或持久化契约。重新执行的测试与既有真实模型证据见[第二阶段收尾报告](PHASE2_RELEASE_20261023.md)。
 
+Phase 3A仅扩展PolicyKnowledgeBase内部检索与工具结果的retrieval元数据：PolicyAgent → ScopedTools.search_policy → TF-IDF / Dense / RRF Hybrid → 原回复Agent。订单、身份、thread_id、节点路由、interrupt/resume、工单幂等均不变。检索文本是不可信证据，不能授权工具；默认离线TF-IDF，索引缺失不自动联网。配置、学习顺序与最终241/23项验证见[3A手册](PHASE3A_HYBRID_RAG.md)和[实际验证](PHASE3A_VERIFICATION.md)。
+
 ## 1. 四种业务 ID 和一条关键不变量
 
 | ID | 谁生成/何时生成 | 保存在哪里 | 重试/澄清 |

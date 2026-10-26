@@ -7,6 +7,9 @@ export interface RetrievedDocument {
   source: string;
   text: string;
   score?: number;
+  score_type?: "tfidf_cosine" | "dense_cosine" | "rrf";
+  retrieval_mode?: "tfidf" | "dense" | "hybrid";
+  chunk_id?: string;
 }
 
 export interface AgentResult {

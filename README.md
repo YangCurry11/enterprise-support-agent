@@ -3,6 +3,8 @@
 [![CI](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml)
 [运行指南](docs/PHASE1_UPGRADE.md) · [多轮架构](docs/MULTI_TURN_ARCHITECTURE.md) · [评测说明](docs/EVALUATION_GUIDE.md) · [千问第二阶段](docs/PHASE2_QWEN_VALIDATION.md) · [第二阶段收尾记录](docs/PHASE2_RELEASE_20261023.md)
 
+**v0.4 / Phase 3A 真实Embedding检索核验**：[混合RAG精讲](docs/PHASE3A_HYBRID_RAG.md) · [验证记录](docs/PHASE3A_VERIFICATION.md) · [2026-10-26收尾报告](docs/PHASE3A_REAL_ACCEPTANCE_20261026.md)。用户已运行text-embedding-v4/1024维；本轮仅离线核验既有真实报告，新增模型请求0。36题三模式缓存排名可复现；独立人工证据复核与自动安全拒答尚未验收。默认仍为TF-IDF，不自动启用付费调用。
+
 一个基于 **Vue 3 + TypeScript、FastAPI、LangGraph 与 SQLite** 的客服工作流项目：在同一会话中查询订单、追问政策、申请售后，并将需要业务写入的请求交给人工审核。
 
 项目的重点不只是“生成一句回复”，而是把**会话记忆、工具权限、人工审核、幂等建单和故障恢复**接到同一条可追踪的处理链路。
@@ -55,12 +57,12 @@
 | 用户隔离 | Bearer Token → Principal → 会话 owner 与 ScopedTools 归属检查 | 历史消息和模型输出不能成为访问别人的订单的凭据 |
 | 人工审核 | interrupt 暂停，客服专属接口通过 Command(resume=...) 恢复 | 先审核再建单，普通聊天不能伪造 approved |
 | 幂等与恢复 | request_id 去重、固定消息 ID、工单唯一键、SQLite Checkpointer | 网络丢响应后重试，避免重复消息与重复工单 |
-| 政策 RAG | 真实政策文件、TF-IDF Top-K 检索、来源与片段展示 | 把回答依据展示出来，不只输出一段无来源的话 |
+| 政策 RAG | 默认TF-IDF；可选独立Embedding、NumPy Dense、RRF混合检索；稳定片段ID与来源 | 不把融合分当置信度；无索引或向量错误时明确回退，不自动付费重建 |
 | 模型回退 | 可配置兼容 API；分类回退规则，回复失败保留模板 | 模型不可用时仍能运行确定性业务，轨迹记录实际模式 |
 | 签收事实边界 | 本轮授权工具生成 received / not_received / unknown 三态，区分 null 与0天 | 已发货或缺签收记录不能被模型解释成“尚未签收”；政策条件不等于订单事实 |
 | 效果评测 | 意图同批规则/模型对比、政策检索、回复/权限/审核、离线故障与三轮工具；JSON / CSV / Markdown / 待人工表 | 将功能测试、模型效果与人工质量验收分开；显式组件、含重试的调用预算 |
 
-这里的 Multi-Agent 是**显式分工、受约束的业务工作流**，不是无限循环的自主规划器。当前也没有引入向量数据库、Embedding 混合检索或模型微调。
+这里的 Multi-Agent 是**显式分工、受约束的业务工作流**，不是无限循环的自主规划器。Phase 3A已增加可选Embedding与混合检索，并完成小型模拟开发集的真实向量缓存核验；不是生产效果证明，没有引入向量数据库、模型微调或Phase 3B自主Tool Calling。
 
 ## 三轮对话实操
 
@@ -113,7 +115,7 @@ flowchart TD
     RUN --> AGENTS["Intent / Order / Policy / Response"]
     AGENTS --> TOOLS["ScopedTools / 客户归属校验"]
     TOOLS --> BIZ[("business.db / 模拟订单与工单")]
-    TOOLS --> RAG["TF-IDF / 仓库政策文件"]
+    TOOLS --> RAG["PolicyKnowledgeBase / 默认TF-IDF、可选Dense或RRF Hybrid"]
     AGENTS --> FACTS["OrderFacts / 本轮已知事实、未知字段、政策条件"]
     FACTS --> MODEL["Qwen 辅助分类与回复 / 有界调用"]
     MODEL --> SAFETY["最小事实检查 / 失败保留模板"]
@@ -197,6 +199,27 @@ pnpm.cmd dev
 这些凭证仅在 development 且未自定义 SUPPORT_AUTH_TOKENS 时使用。如果已有 .env 私有配置，以自己的配置为准；不要为了截图覆盖真实密钥。客服新建会话时需要填写合法服务对象，例如 U1001。
 
 ## 评测与测试
+
+### Phase 3A 三模式对照
+
+```powershell
+# 全离线；默认Mock词法哈希向量，不能当真实语义模型效果
+.\.venv\Scripts\python.exe -m evaluation.compare_rag --mode offline
+# 原离线评测语义不变，强制使用历史TF-IDF基线
+.\.venv\Scripts\python.exe -m evaluation.run_evaluation --mode offline
+```
+
+2026-10-26重新执行：**后端299 passed、前端23 passed**，生产构建与pip check通过，原离线工作流10/10、三轮1/1。真实Embedding为用户此前单独执行的6次请求、供应商945输入Token、usage完整；公开价格估算¥0.0004725，不是实际账单。本轮新增模型请求0，不修改gold或删除错例。
+
+| 集合 / 指标 | TF-IDF | Real Dense | Real Hybrid |
+|---|---:|---:|---:|
+| Historical20 证据Hit@3 | 19/20 | 20/20 | 20/20 |
+| Hard16的13正例 证据Hit@3 | 8/13 | 13/13 | 11/13 |
+| Hard16的13正例 文档MRR | 0.8077 | 0.9231 | 0.8654 |
+
+**Dense在本次困难集上优于Hybrid**，不能宣传RRF必然提升；历史Mock结果单独保留。两次真实缓存对照均新增请求0，108组问题×模式、540条候选的chunk_id、排名、得分一致。三种模式对3个无依据问题均返回候选，这不是政策支持证明，自动安全拒答尚未验收；全部36题的独立人工证据复核仍待完成。小型模拟开发集的命中结果不等于真实客服答案准确率、生产SLA或ROI。
+
+缓存、远程文本最小化、调用预算、全部实际指标与手动live命令见[3A手册](docs/PHASE3A_HYBRID_RAG.md)和[验证报告](docs/PHASE3A_VERIFICATION.md)。每次对照默认生成唯一忽略目录，不覆盖历史报告。下面页面截图及第二阶段记录是既有历史，不冒称新的Dense线上结果。
 
 ### 评测页面
 
@@ -292,7 +315,12 @@ enterprise-support-agent/
 │   ├── model_runtime.py       # 明确配置、有界重试、错误分类、调用硬预算
 │   ├── order_facts.py         # 当前订单事实、签收三态与未知字段
 │   ├── reply_safety.py        # 最小事实防线，不替代人工语义复核
-│   ├── rag.py                 # TF-IDF 政策检索
+│   ├── rag.py                 # 兼容search入口、TF-IDF、Dense/Hybrid路由与回退
+│   ├── rag_config.py          # 服务端检索与独立Embedding配置
+│   ├── embedding_client.py    # 独立SDK、预算/重试/usage、最小化查询
+│   ├── rag_index.py           # 稳定版本指纹、安全JSON索引与原子替换
+│   ├── dense_retriever.py     # 归一化向量、NumPy余弦检索与查询缓存
+│   ├── hybrid_retriever.py    # 按chunk_id对齐的RRF排名融合
 │   └── business_db.py         # SQLite 模拟业务数据
 ├── frontend/src/
 │   ├── App.vue                # 连续聊天入口
@@ -352,6 +380,9 @@ enterprise-support-agent/
 | SUPPORT_DATA_DIR | 数据库存储目录 |
 | CORS_ORIGINS | 允许访问 API 的前端来源 |
 | EVALUATION_REPORT_DIR | 可选的评测报告读取目录 |
+| RAG_MODE | tfidf（默认）/ dense / hybrid，服务端配置，聊天不能切换 |
+| EMBEDDING_ENABLED / RAG_REMOTE_QUERY_ENABLED | 默认均false；索引构建与远程查询单独受控 |
+| EMBEDDING_MODEL / EMBEDDING_BASE_URL / EMBEDDING_API_KEY / EMBEDDING_DIMENSIONS | 独立向量配置，不复用聊天模型 |
 
 历史仅提供线索，不能更改真实身份、订单授权或人工审批。即使上一轮已确认订单，每轮相关工具访问仍重新校验归属。
 
@@ -383,6 +414,9 @@ docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/va
 | 如何运行、三轮演示、代码学习顺序与面试追问 | [第一阶段升级精讲](docs/PHASE1_UPGRADE.md) |
 | 四种 ID、数据库表、上下文、检查点与恢复边界 | [多轮架构说明](docs/MULTI_TURN_ARCHITECTURE.md) |
 | 如何跑评测，Accuracy / F1 / Recall / P95 怎么定义 | [评测指南](docs/EVALUATION_GUIDE.md) |
+| 三种检索、缓存、RRF、故障回退、显式在线操作与学习路线 | [Phase 3A混合RAG精讲](docs/PHASE3A_HYBRID_RAG.md) |
+| 历史Mock与299/23项新回归、真实缓存核验 | [Phase 3A实际验证](docs/PHASE3A_VERIFICATION.md) |
+| v4真实结果、逐题可复现性、人工证据表复跑与剩余门禁 | [Phase 3A真实验收收尾](docs/PHASE3A_REAL_ACCEPTANCE_20261026.md) |
 | 配置预检、显式在线组件、物理调用预算、三轮与人工质量复核 | [第二阶段千问验证](docs/PHASE2_QWEN_VALIDATION.md) |
 | 本次158项回归、真实模型失败/成功证据、面试表述与发布边界 | [第二阶段收尾记录](docs/PHASE2_RELEASE_20261023.md) |
 | 签收三态、Prompt、事实校验与55个新增测试 | [签收事实修复](docs/RECEIPT_FACTS_FIX_20261023.md) |
@@ -392,4 +426,4 @@ docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/va
 | 原有学习路线、API 示例与第三方接入 | [学习路线](docs/learning_path.md) · [API 示例](docs/api_examples.md) · [Dify / Coze](docs/dify_coze_setup.md) |
 | 本次页面图的采集环境与复现步骤 | [截图说明](docs/screenshots/README.md) |
 
-后续迭代优先补齐人工复核的独立评测集、多场景真实模型验证与业务适配，再依据错误分析决定是否升级检索或调度架构。本次没有开发第三阶段功能。
+后续迭代优先补齐人工复核的独立评测集、多场景真实模型验证与业务适配，再依据错误分析决定是否升级检索或调度架构。本次仅完成Phase 3A收尾，没有开发Phase 3B。
