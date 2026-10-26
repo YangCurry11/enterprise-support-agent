@@ -2,11 +2,11 @@
 
 ## 1. 当前做到了什么
 
-这是基于第二阶段ae0ed9070e4fe596069a34a16ea60d355ad2afcf的增量开发，当前本地分支feature/phase3a-hybrid-rag。首次开发未提交；最终审查现已获得本地提交授权，未推送或调用真实Embedding，没有开发Phase 3B。完整审查见验证报告第9节。
+这是基于第二阶段ae0ed9070e4fe596069a34a16ea60d355ad2afcf的增量开发，分支feature/phase3a-hybrid-rag。2026-10-24的离线开发与准备提交已完成；2026-10-26按用户请求核验既有真实Embedding报告并准备向main提交PR，不自动合并，没有开发Phase 3B。完整历史与最新结果见验证报告第9–10节。
 
-tfidf / dense / hybrid三模式、独立Embedding客户端、安全本地索引、NumPy检索、RRF、回退、离线/显式live CLI均已实现并经过Mock测试。真实向量模型的授权、地域、联网兼容、效果、Token和费用尚未验证。默认tfidf，无需Key、索引、向量数据库或一套新环境即可沿用原启动方式。
+tfidf / dense / hybrid三模式、独立Embedding客户端、安全本地索引、NumPy检索、RRF、回退、离线/显式live CLI均已实现。用户已运行text-embedding-v4/1024维，本轮仅离线核验6次尝试、945输入Token以及两次真实缓存对照；困难13正例的证据Hit@3为TF-IDF 8/13、Dense 13/13、Hybrid 11/13，Dense优于Hybrid。独立人工复核、自动安全拒答、账单与生产使用仍未验收。默认tfidf，不因本次结果自动切换业务模式或联网。
 
-最终后端241项、前端23项测试与实际对照见[验证报告](PHASE3A_VERIFICATION.md)。首次3A的233项记录保留；不要把Mock对照当作模型语义能力或上线验收。
+本次后端299项、前端23项与实际对照见[真实验收收尾](PHASE3A_REAL_ACCEPTANCE_20261026.md)。历史233/241/277项及Mock记录保留，不把历史测试冒充本轮执行，不把Mock或开发集结果当作上线验收。
 
 ## 2. 先运行，再学习
 
@@ -140,7 +140,7 @@ usage仅使用供应商实际返回值：通常由prompt_tokens/total_tokens映�
 
 ## 7. 手动启用真实Embedding（本轮没有执行）
 
-先阅读[真实Embedding验收准备报告](PHASE3A_LIVE_ACCEPTANCE_PREPARATION.md)。本节命令语法已核对，但不是运行授权。当前独立Embedding配置缺失，精确Token/人民币硬上限尚无运行时预扣机制；在配置、外发授权与预算门禁满足前，不得执行live命令。验收优先使用新报告中的“一次6批构建+两次离线cache对照”，不要把下列两种构建方案连续执行。
+先阅读[准备阶段快照](PHASE3A_LIVE_ACCEPTANCE_PREPARATION.md)及[最新真实收尾报告](PHASE3A_REAL_ACCEPTANCE_20261026.md)。准备报告中的“配置缺失”是2026-10-24的状态，用户之后已配置并执行一次真实构建。本节命令不是本轮或未来的运行授权，精确Token/人民币硬上限仍无运行时预扣；未重新确认外发与预算门禁不得执行live命令。已有完整缓存的核验不需要再次付费构建，不要把两种构建方案连续执行。
 
 2026-10-24查阅[百炼OpenAI兼容Embedding文档](https://www.alibabacloud.com/help/en/model-studio/embedding-interfaces-compatible-with-openai)：text-embedding-v4是独立文本向量候选；已知维度64/128/256/512/768/1024/1536/2048，每批最多10条。本文示例选1024，不代表已验证你的账户授权、额度、地域或未来兼容性。请在控制台确认向量模型权限，不能把聊天模型当向量模型。
 
@@ -221,6 +221,6 @@ $env:RAG_REMOTE_QUERY_ENABLED = "true"
 9. build_policy_index.py：显式live+allow-remote+硬预算；只有受控模拟政策；没有启动时付费、没有隐式重建。
 10. tests/test_hybrid_rag.py：结合缓存失效、MockTransport、预算、向量坏值、Hybrid回退与原图审核/幂等测试，解释你的安全边界。
 
-可讲：“我保留TF-IDF基线和原PolicyAgent接口，增加可选Dense及RRF，模型和索引有独立版本/预算，失败能追踪并回退。原20题指标不变，困难集Mock融合没有超过基线，真实向量模型还没授权运行，所以我没有写模型提升百分比。”
+可讲：“我保留TF-IDF基线和原PolicyAgent接口，增加v4 Dense及RRF，索引有版本校验、请求预算和可追踪回退。在固定13条困难正例中Dense证据Hit@3为13/13、Hybrid为11/13，两次缓存逐题排名复现；这只是小型模拟开发集，不是生产准确率。3条无依据问题仍返回候选，独立人工复核和安全拒答尚未验收。”
 
-下一步先独立人工复核gold和无依据问题，再授权运行真实Embedding；按文档命中/证据命中/负例错误定位，再决定是否调整候选、切分、拒识或RRF参数。不能边看本开发集预测边改gold，不能把新增技术名词当作质量提升。
+下一步是用本地证据表独立人工复核gold和无依据问题，不是重复构建真实Embedding。之后依据错误定位再单独决定是否调整候选、切分、拒识或RRF参数；这些优化不在本次收尾中。不能边看预测边改gold，也不把新增技术名词当作质量提升。

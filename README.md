@@ -3,7 +3,7 @@
 [![CI](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/YangCurry11/enterprise-support-agent/actions/workflows/ci.yml)
 [运行指南](docs/PHASE1_UPGRADE.md) · [多轮架构](docs/MULTI_TURN_ARCHITECTURE.md) · [评测说明](docs/EVALUATION_GUIDE.md) · [千问第二阶段](docs/PHASE2_QWEN_VALIDATION.md) · [第二阶段收尾记录](docs/PHASE2_RELEASE_20261023.md)
 
-**v0.4 / Phase 3A 本地离线版**：[混合RAG配置与代码精讲](docs/PHASE3A_HYBRID_RAG.md) · [本次实际验证](docs/PHASE3A_VERIFICATION.md)。当前分支feature/phase3a-hybrid-rag；本次仅授权本地提交，未推送、未调用真实Embedding。默认仍为TF-IDF，原有启动方式不变。
+**v0.4 / Phase 3A 真实Embedding检索核验**：[混合RAG精讲](docs/PHASE3A_HYBRID_RAG.md) · [验证记录](docs/PHASE3A_VERIFICATION.md) · [2026-10-26收尾报告](docs/PHASE3A_REAL_ACCEPTANCE_20261026.md)。用户已运行text-embedding-v4/1024维；本轮仅离线核验既有真实报告，新增模型请求0。36题三模式缓存排名可复现；独立人工证据复核与自动安全拒答尚未验收。默认仍为TF-IDF，不自动启用付费调用。
 
 一个基于 **Vue 3 + TypeScript、FastAPI、LangGraph 与 SQLite** 的客服工作流项目：在同一会话中查询订单、追问政策、申请售后，并将需要业务写入的请求交给人工审核。
 
@@ -62,7 +62,7 @@
 | 签收事实边界 | 本轮授权工具生成 received / not_received / unknown 三态，区分 null 与0天 | 已发货或缺签收记录不能被模型解释成“尚未签收”；政策条件不等于订单事实 |
 | 效果评测 | 意图同批规则/模型对比、政策检索、回复/权限/审核、离线故障与三轮工具；JSON / CSV / Markdown / 待人工表 | 将功能测试、模型效果与人工质量验收分开；显式组件、含重试的调用预算 |
 
-这里的 Multi-Agent 是**显式分工、受约束的业务工作流**，不是无限循环的自主规划器。Phase 3A已增加可选Embedding与混合检索，尚未验证真实向量模型效果；没有引入向量数据库、模型微调或Phase 3B自主Tool Calling。
+这里的 Multi-Agent 是**显式分工、受约束的业务工作流**，不是无限循环的自主规划器。Phase 3A已增加可选Embedding与混合检索，并完成小型模拟开发集的真实向量缓存核验；不是生产效果证明，没有引入向量数据库、模型微调或Phase 3B自主Tool Calling。
 
 ## 三轮对话实操
 
@@ -200,7 +200,7 @@ pnpm.cmd dev
 
 ## 评测与测试
 
-### Phase 3A 三模式对照（本地，尚未发布）
+### Phase 3A 三模式对照
 
 ```powershell
 # 全离线；默认Mock词法哈希向量，不能当真实语义模型效果
@@ -209,7 +209,15 @@ pnpm.cmd dev
 .\.venv\Scripts\python.exe -m evaluation.run_evaluation --mode offline
 ```
 
-最终审查重新执行：后端241 passed、前端23 passed，生产构建与pip check通过；原158/19项测试保留。相较首次3A的233项，新增8个SDK关闭/查询缓存格式边界用例，原断言未修改。历史20题TF-IDF仍为Recall@1/3/5=0.95/0.95/1.0、MRR=0.9625。另有16题困难开发集（13正例、3无依据问题，均待人工复核）；本次**Mock Hybrid没有超过TF-IDF**：正例Recall@3为0.6923，对照TF-IDF为0.9231。三模式都没有正确对3个无依据问题空召回，说明Top-K相关结果不等于政策支持；未按结果修改gold或删除错例。真实Embedding质量、费用和可用性仍待授权验证。
+2026-10-26重新执行：**后端299 passed、前端23 passed**，生产构建与pip check通过，原离线工作流10/10、三轮1/1。真实Embedding为用户此前单独执行的6次请求、供应商945输入Token、usage完整；公开价格估算¥0.0004725，不是实际账单。本轮新增模型请求0，不修改gold或删除错例。
+
+| 集合 / 指标 | TF-IDF | Real Dense | Real Hybrid |
+|---|---:|---:|---:|
+| Historical20 证据Hit@3 | 19/20 | 20/20 | 20/20 |
+| Hard16的13正例 证据Hit@3 | 8/13 | 13/13 | 11/13 |
+| Hard16的13正例 文档MRR | 0.8077 | 0.9231 | 0.8654 |
+
+**Dense在本次困难集上优于Hybrid**，不能宣传RRF必然提升；历史Mock结果单独保留。两次真实缓存对照均新增请求0，108组问题×模式、540条候选的chunk_id、排名、得分一致。三种模式对3个无依据问题均返回候选，这不是政策支持证明，自动安全拒答尚未验收；全部36题的独立人工证据复核仍待完成。小型模拟开发集的命中结果不等于真实客服答案准确率、生产SLA或ROI。
 
 缓存、远程文本最小化、调用预算、全部实际指标与手动live命令见[3A手册](docs/PHASE3A_HYBRID_RAG.md)和[验证报告](docs/PHASE3A_VERIFICATION.md)。每次对照默认生成唯一忽略目录，不覆盖历史报告。下面页面截图及第二阶段记录是既有历史，不冒称新的Dense线上结果。
 
@@ -407,7 +415,8 @@ docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/va
 | 四种 ID、数据库表、上下文、检查点与恢复边界 | [多轮架构说明](docs/MULTI_TURN_ARCHITECTURE.md) |
 | 如何跑评测，Accuracy / F1 / Recall / P95 怎么定义 | [评测指南](docs/EVALUATION_GUIDE.md) |
 | 三种检索、缓存、RRF、故障回退、显式在线操作与学习路线 | [Phase 3A混合RAG精讲](docs/PHASE3A_HYBRID_RAG.md) |
-| 最终241/23项回归、Mock对照、退化与未验证边界 | [Phase 3A实际验证](docs/PHASE3A_VERIFICATION.md) |
+| 历史Mock与299/23项新回归、真实缓存核验 | [Phase 3A实际验证](docs/PHASE3A_VERIFICATION.md) |
+| v4真实结果、逐题可复现性、人工证据表复跑与剩余门禁 | [Phase 3A真实验收收尾](docs/PHASE3A_REAL_ACCEPTANCE_20261026.md) |
 | 配置预检、显式在线组件、物理调用预算、三轮与人工质量复核 | [第二阶段千问验证](docs/PHASE2_QWEN_VALIDATION.md) |
 | 本次158项回归、真实模型失败/成功证据、面试表述与发布边界 | [第二阶段收尾记录](docs/PHASE2_RELEASE_20261023.md) |
 | 签收三态、Prompt、事实校验与55个新增测试 | [签收事实修复](docs/RECEIPT_FACTS_FIX_20261023.md) |
@@ -417,4 +426,4 @@ docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/va
 | 原有学习路线、API 示例与第三方接入 | [学习路线](docs/learning_path.md) · [API 示例](docs/api_examples.md) · [Dify / Coze](docs/dify_coze_setup.md) |
 | 本次页面图的采集环境与复现步骤 | [截图说明](docs/screenshots/README.md) |
 
-后续迭代优先补齐人工复核的独立评测集、多场景真实模型验证与业务适配，再依据错误分析决定是否升级检索或调度架构。本次没有开发第三阶段功能。
+后续迭代优先补齐人工复核的独立评测集、多场景真实模型验证与业务适配，再依据错误分析决定是否升级检索或调度架构。本次仅完成Phase 3A收尾，没有开发Phase 3B。

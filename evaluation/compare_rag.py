@@ -22,10 +22,18 @@ def new_output(kind):
 
 
 def write_comparison(report, output):
+    descriptions = {
+        "mock_dense": "Mock只验证算法与工程，不是Embedding模型语义效果；fallback不得当Dense成功。",
+        "real_cached_dense": "使用真实Embedding缓存进行离线检索对照；不是Mock，也不包含本次在线向量化延迟。fallback不得当Dense成功。",
+        "live_dense": "显式在线查询向量化与真实缓存共同参与；实际请求次数以ledger为准，不把缓存命中当新增在线调用。fallback不得当Dense成功。",
+    }
+    source = report["embedding_source"]
+    if source not in descriptions:
+        raise ValueError("unknown embedding report source")
     output.mkdir(parents=True, exist_ok=False)
     atomic_json(output / "latest.json", report)
     lines = ["# Phase 3A 实际检索对照", "", "模拟开发标注，pending human review；不是答案准确率。",
-             "Mock只验证算法与工程，不是Embedding模型语义效果；fallback不得当Dense成功。", "",
+             descriptions[source], "",
              "| 集合 / 模式 | 来源 | R@1 | R@3 | R@5 | MRR | 证据@3 | mean ms | P50 | P95 | 回退 |", "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     with (output / "details.csv").open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
