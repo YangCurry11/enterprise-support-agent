@@ -5,6 +5,7 @@ defineProps<{ steps: AgentStep[] }>();
 const labels: Record<string, string> = {
   IntentAgent: "识别用户意图", OrderAgent: "查询订单信息", PolicyAgent: "检索企业政策", TicketAgent: "执行工单操作",
   ResponseAgent: "组织客服回复", LLMResponseAgent: "生成或降级回复", ReviewAgent: "记录审核与权限校验", ClarificationAgent: "补充订单信息",
+  SafeToolCalling: "受控只读工具规划与执行",
 };
 </script>
 

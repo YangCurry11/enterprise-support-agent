@@ -29,6 +29,23 @@ export interface AgentResult {
   steps: AgentStep[];
   latency_ms: number;
   created_at?: string;
+  tool_calling_trace?: ToolCallingTrace;
+}
+
+export interface ToolAttempt {
+  run_id: string; tool: string; tool_call_id: string;
+  parameters_checked?: boolean; parameters_valid: boolean; allowed: boolean;
+  executed: boolean; success: boolean; permission_blocked: boolean;
+  error_type: string | null; latency_ms: number; cached: boolean;
+}
+export interface ToolCallingTrace {
+  enabled?: boolean; status?: string; tools?: ToolAttempt[];
+  tool_call_count?: number; tool_execution_count?: number; fallback_tool_execution_count?: number;
+  rounds?: number; fallback_used?: boolean; error_type?: string | null;
+  fallback_error_type?: string;
+  model_calls?: { actual_model_calls: number; max_model_calls: number; simulated?: boolean;
+    token_usage?: { input_tokens: number; output_tokens: number; total_tokens: number } | null;
+    usage_complete?: boolean };
 }
 
 export interface Health {

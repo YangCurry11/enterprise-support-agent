@@ -73,6 +73,7 @@ def sandbox(*, live=False, intent_live=False):
     with _sandbox_lock, tempfile.TemporaryDirectory(prefix="serviceflow-phase2-") as directory, ExitStack() as stack:
         root = Path(directory)
         env = {"LLM_INTENT_ENABLED": "true" if intent_live else "false", "SUPPORT_AUTH_TOKENS": tokens,
+               "LLM_TOOL_CALLING_ENABLED": "false",
                "RAG_MODE": "tfidf", "EMBEDDING_ENABLED": "false", "RAG_REMOTE_QUERY_ENABLED": "false",
                "SUPPORT_ENV": "development", "CHAT_CONTEXT_ENABLED": "true",
                "CHAT_HISTORY_WINDOW": "10", "CHAT_MAX_CONTEXT_CHARS": "12000"}

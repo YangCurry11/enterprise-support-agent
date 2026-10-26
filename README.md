@@ -5,6 +5,8 @@
 
 **v0.4 / Phase 3A 真实Embedding检索核验**：[混合RAG精讲](docs/PHASE3A_HYBRID_RAG.md) · [验证记录](docs/PHASE3A_VERIFICATION.md) · [2026-10-26收尾报告](docs/PHASE3A_REAL_ACCEPTANCE_20261026.md)。用户已运行text-embedding-v4/1024维；本轮仅离线核验既有真实报告，新增模型请求0。36题三模式缓存排名可复现；独立人工证据复核与自动安全拒答尚未验收。默认仍为TF-IDF，不自动启用付费调用。
 
+**v0.5 / Phase 3B 本地离线工程版本**：[只读工具实现](docs/PHASE3B_SAFE_TOOL_CALLING.md) · [本轮验证记录](docs/PHASE3B_VERIFICATION.md#10-最终代码审查与本地提交验收2026-10-26) · [运行与手动验收](docs/PHASE3B_DEMO.md)。可选模型规划仅开放query_order/search_policy，服务端严格校验与客户权限隔离，原人工审核和幂等建单保留。默认关闭；最终审查363项后端、27项前端及生产构建通过，固定36场景/新三轮均离线完成，真实Tool Calling效果待另行授权。开发分支独立于main，尚未推送，不表示main已包含v0.5。
+
 一个基于 **Vue 3 + TypeScript、FastAPI、LangGraph 与 SQLite** 的客服工作流项目：在同一会话中查询订单、追问政策、申请售后，并将需要业务写入的请求交给人工审核。
 
 项目的重点不只是“生成一句回复”，而是把**会话记忆、工具权限、人工审核、幂等建单和故障恢复**接到同一条可追踪的处理链路。
@@ -60,9 +62,10 @@
 | 政策 RAG | 默认TF-IDF；可选独立Embedding、NumPy Dense、RRF混合检索；稳定片段ID与来源 | 不把融合分当置信度；无索引或向量错误时明确回退，不自动付费重建 |
 | 模型回退 | 可配置兼容 API；分类回退规则，回复失败保留模板 | 模型不可用时仍能运行确定性业务，轨迹记录实际模式 |
 | 签收事实边界 | 本轮授权工具生成 received / not_received / unknown 三态，区分 null 与0天 | 已发货或缺签收记录不能被模型解释成“尚未签收”；政策条件不等于订单事实 |
+| 可选只读Tool Calling | 默认false；模型只提议订单查询/政策检索；整批schema、调用ID、上下文与预算校验 | 身份与审批由服务端控制；失败回原模板，模型无法直接建单或执行SQL |
 | 效果评测 | 意图同批规则/模型对比、政策检索、回复/权限/审核、离线故障与三轮工具；JSON / CSV / Markdown / 待人工表 | 将功能测试、模型效果与人工质量验收分开；显式组件、含重试的调用预算 |
 
-这里的 Multi-Agent 是**显式分工、受约束的业务工作流**，不是无限循环的自主规划器。Phase 3A已增加可选Embedding与混合检索，并完成小型模拟开发集的真实向量缓存核验；不是生产效果证明，没有引入向量数据库、模型微调或Phase 3B自主Tool Calling。
+这里的 Multi-Agent 是**显式分工、受约束的业务工作流**。Phase 3A已增加可选Embedding与混合检索，并完成小型模拟开发集的真实向量缓存核验；Phase 3B增加有界只读工具规划，仍由原LangGraph控制写操作和人工审核。没有引入向量数据库或模型微调，小型开发集结果不作为生产效果证明。
 
 ## 三轮对话实操
 
@@ -199,6 +202,19 @@ pnpm.cmd dev
 这些凭证仅在 development 且未自定义 SUPPORT_AUTH_TOKENS 时使用。如果已有 .env 私有配置，以自己的配置为准；不要为了截图覆盖真实密钥。客服新建会话时需要填写合法服务对象，例如 U1001。
 
 ## 评测与测试
+
+### Phase 3B 只读工具离线验收
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluation.evaluate_tool_calling --mode offline --output evaluation/reports-tool-calling-my-run
+.\.venv\Scripts\python.exe -m evaluation.verify_tool_calling --mode offline --output evaluation/reports-tool-e2e-my-run
+# 仅读取配置和合成数据指纹，不创建客户端、不联网
+.\.venv\Scripts\python.exe -m evaluation.verify_tool_calling --check-config
+```
+
+最终审查完整Pytest **363 passed**、前端 **27 passed**，pip check和生产构建通过。固定36场景全部符合工程预期，但其中有故意错误的脚本模型输出：原始工具名称集合选择29/36、已检查参数通过23/32、实际模型触发读取成功17/20、安全样例拒绝11/11、回退24/36。模拟模型尝试50次，真实供应商调用0；这些不是千问准确率。新三轮离线通过1/1，4次脚本请求，第三轮停在原审核节点。详细分母、错误记录和边界见[本轮验证](docs/PHASE3B_VERIFICATION.md#10-最终代码审查与本地提交验收2026-10-26)。
+
+真实Tool Calling验收必须另外明确授权，专用命令要求allow-remote和全局请求预算，并只允许指纹固定的合成数据；本轮没有执行，不自动上传已有数据。旧评测语义保留，下面3A/第二阶段数字均带历史范围。
 
 ### Phase 3A 三模式对照
 
