@@ -1,12 +1,16 @@
-# Phase 3B 离线验证记录（2026-10-26）
+# Phase 3B 验证与本地交付记录（2026-10-27）
 
-最新验收：**最终代码审查后363项后端、27项前端通过**，生产构建、pip check与全部离线入口通过。
-第1–9节保留首次开发轮的历史结果；第10节是本次最终审查、12项新增安全回归及本地提交验收记录。
-真实Qwen Tool Calling未执行；不得把历史351项或main的CI当成本轮结果。
+最新状态：用户第三次真实Qwen三轮1/1符合工程预期，5/8次模型请求、5成功/0失败、5840 Token，
+来源/签收未知/原人工审核等24项自动检查通过；人工表3行仍pending。
+精确目录、安全汇总、完整链路和生产限制见[真实验收总结](PHASE3B_REAL_ACCEPTANCE_20261027.md)。
+本轮交付重新执行**427项后端、27项前端**，生产构建、pip check、固定36场景、新旧三轮、3A离线检索与原Agent offline全部完成，
+详见第11节；新增真实模型请求0，仅在审查通过后创建本地提交，不Push或Merge。
+第1–10节保留2026-10-26历史开发/审查记录，363项和“真实未执行”仅描述当时。
+首轮未知原文的证据边界和第二次missing_source记录分别保留在对应排查文档，不以最终成功覆盖历史失败。
 
-## 1. 结论与Git边界
+## 1. 结论与Git边界（历史，最新见第11节）
 
-本轮完成可选只读Tool Calling的离线工程实现与验证；真实千问Tool Calling仍未验收。
+本节记录首次离线开发轮：当时完成可选只读Tool Calling的工程实现与验证，尚未执行真实千问验收。
 本轮**真实聊天模型调用0、真实Embedding调用0**，没有修改.env，没有构建真实向量索引，没有上传业务数据。
 
 - 基准main：`0a4b8e433c57cda1cd7751d14d03b880d44adfc1`。
@@ -276,3 +280,58 @@ $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 只包含第2节22个Phase 3B源码、测试、固定合成用例及必要文档；真实.env、密钥、向量缓存、DB、临时目录和运行报告全部排除。
 本节随该本地提交保存；实际SHA以本节所属Git提交记录和最终回复为准，不将自身SHA硬编码进提交文件。
 不Push、不创建PR、不Merge、不Rebase、不删分支；main仍保持基准SHA，不能声称触发了新CI。
+
+## 11. 真实验收后的最终交付审查（2026-10-27）
+
+### 11.1 实际报告与范围
+
+通过目录查找确认evaluation/reports-tool-live-third-20261027-165002-913/。
+用户既有live报告记录qwen3.7-flash-2026-07-15、5/8次请求、0重试、输入5476/输出364/合计5840 Token，
+usage_complete=true，5次确定性校验成功、0失败；24项检查均true。
+第一轮2次模型请求、第二轮3次，均model_generated且violations=[]；
+第二轮policy_source_present=true、receipt_state=unknown，回答引用实际检索来源refund_policy.md；
+第三轮模型请求0、guarded_workflow、awaiting_review，没有工单。
+manual_review.csv三行均pending，不能声称已完成独立人工语言/政策质量复核。
+
+审查开始HEAD=ea8cdd994c92af0dd43a818a0d04dc699345509b，暂存区为空，
+16个既有未提交文件属于前述安全回复/验收修复；本轮补齐README和交付文档，没有覆盖无关用户修改。
+最终交付清单共20文件，按运行时、评测、测试、配置保护和公开文档列在[总结第7节](PHASE3B_REAL_ACCEPTANCE_20261027.md#7-审查范围与交付文件)。
+
+### 11.2 代码审查结论
+
+- 标准bind_tools → AIMessage.tool_calls → ToolMessage(tool_call_id)协议，固定白名单仅query_order/search_policy。
+- strict参数、整批预校验、ID对应、服务端user/run绑定、订单上下文及ScopedTools归属双重校验保留。
+- create_ticket/approve_refund等名称拒绝；售后仍走原审核interrupt、客服角色、同run恢复与幂等建单。
+- reply_contract从实际授权数据生成必含字段、签收三态与来源示例；没有固定文件名自动追加。
+- reply_safety.py、missing_source/unsupported_source/unsafe_reply及原事实校验没有放宽；缺证据仍拒绝。
+- ScopedCallLedger逐次预占同一CLI父账本；节点4次、全场8次，额外重试0，预算耗尽与任何轮次失败停止后续场景。
+- 模板回退不标记model_generated，不额外调用旧回复模型；错误代码、usage、模型提议和工具实际读取分开审计。
+- reply_diagnostics默认关闭；固定词汇有损投影/白名单元数据，不保存拒绝原文；异常不阻止安全回退。
+- 新旧测试断言与固定gold保留；没有发现需要修改已通过生产代码的阻断性问题。
+
+### 11.3 本轮重新执行结果
+
+| 检查 | 实际结果 |
+|---|---|
+| .venv全量Pytest | **427 passed / 0 failed，54.66秒** |
+| pip check | No broken requirements found |
+| 全部Vitest | **27 passed / 0 failed，5文件** |
+| vue-tsc + Vite | 成功，39模块 |
+| 固定工具offline | **36/36符合工程预期**；原始选择29/36、参数23/32、实际读取17/20、阻断11/11、回退24/36 |
+| 新三轮offline | **1/1**，4次脚本尝试，第三轮仍待审核 |
+| 原三轮offline | **1/1**，审核/恢复/幂等保留 |
+| 3A compare_rag offline | 原20+16题三模式完成，source=mock_dense，Embedding调用0 |
+| 原Agent offline | 工作流10/10、回复6/6、故障6/6、签收14/14；意图Accuracy=0.9125 |
+
+环境：Python3.11.7（项目.venv）、Node24.21.0、pnpm11.19.0。仓库CI/Docker配置Python3.12，本轮未触发新云端CI。
+新报告均位于evaluation/reports-{tools,tool-e2e,legacy-e2e,rag,agent}-phase3b-delivery-20261027-final/，
+没有覆盖旧目录；Mock结果不替代真实模型效果，本轮新增真实聊天/Embedding请求均为0。
+
+### 11.4 本地提交与剩余门禁
+
+只纳入Phase 3B修复、对应测试、配置保护和必要文档；真实.env、真实凭证、业务SQLite、向量缓存、诊断、临时目录及运行报告均不提交。
+提交信息为fix(agent): harden safe tool calling and validate live Qwen flow，SHA以实际Git记录和最终回复为准。
+不Push、建PR、Merge、Rebase或删分支。后续PR正文保存在PHASE3B_PR_BODY.md，供用户人工执行命令使用。
+
+仍未完成：独立人工质量复核、多场景真实Qwen评测、3A无依据问题自动拒答、企业身份/真实业务适配、
+跨进程持久化金额预算、并发/灾备/生产SLA及新提交云端CI。本次真实小场景通过不消除这些风险。

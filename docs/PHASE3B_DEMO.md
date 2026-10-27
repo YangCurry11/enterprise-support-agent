@@ -1,5 +1,12 @@
 # Phase 3B 运行、演示与手动验收
 
+2026-10-27最新状态：第三次真实Qwen三轮1/1符合工程预期，实际5/8次请求、0重试、5840 Token，
+第二轮来源与签收未知校验通过，第三轮停人工审核；人工语言质量复核仍pending。
+精确报告目录及安全证据见[真实验收总结](PHASE3B_REAL_ACCEPTANCE_20261027.md)。
+首轮unsafe_reply、第二轮missing_source的历史证据分别见[首轮排查](PHASE3B_UNSAFE_REPLY_20261027.md)与[引用修复](PHASE3B_MISSING_SOURCE_20261027.md)。
+可在另行授权后以进程环境 `LLM_REPLY_DIAGNOSTICS_ENABLED=true` 开启本地有损投影诊断；默认关闭、不保存原文。
+首轮报告没有被拒绝的原始候选，不能补称已确定当时的违规句；本次交付没有重跑真实API。
+
 ## 1. 不消费API的首选步骤
 
 PowerShell打开现有ServiceFlow项目，使用原.venv，无需新建环境：
@@ -7,8 +14,9 @@ PowerShell打开现有ServiceFlow项目，使用原.venv，无需新建环境：
 ```powershell
 Set-Location 'C:\Users\yymmxr\Documents\ChatGPT\企业客服多Agent系统'
 .\.venv\Scripts\python.exe -m pytest tests/test_tool_calling.py tests/test_tool_calling_evaluation.py -q
-.\.venv\Scripts\python.exe -m evaluation.evaluate_tool_calling --mode offline --output evaluation/reports-tool-calling-my-run
-.\.venv\Scripts\python.exe -m evaluation.verify_tool_calling --mode offline --output evaluation/reports-tool-e2e-my-run
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+.\.venv\Scripts\python.exe -m evaluation.evaluate_tool_calling --mode offline --output "evaluation/reports-tool-calling-$stamp"
+.\.venv\Scripts\python.exe -m evaluation.verify_tool_calling --mode offline --output "evaluation/reports-tool-e2e-$stamp"
 ```
 
 这会运行真实后端/图/SQLite与脚本模型。36场景评测输出latest.json、details.csv、summary.md；
@@ -53,22 +61,31 @@ Set-Location 'C:\Users\yymmxr\Documents\ChatGPT\企业客服多Agent系统'
 
 输出key_configured布尔值、模型code、端点主机、参数、合成数据指纹是否匹配、network_calls=0。
 通过只表示格式和数据范围检查通过，不证明账号额度、地域、权限或精确模型支持工具调用。
-当前历史模型code为qwen3.7-flash-2026-07-15，不能把历史普通回复成功当成本阶段Tool Calling成功。
+第三次报告模型code为qwen3.7-flash-2026-07-15；预检本身仍不证明账号实时权限/余额或新的调用一定成功。
 
 ## 4. 真实三轮命令：必须先另行授权
 
-**下面命令会请求真实千问、可能扣费；本次开发没有执行。**
-只有使用者明确同意外发固定合成问题、授权订单脱敏字段、模拟政策片段，并接受最多6次请求尝试时才手动执行：
+既有第三次验收已通过，无需为了查看报告再次调用。
+**下面命令用于未来另行授权的真实复跑，会请求千问、可能扣费；本次交付没有执行。**
+只有使用者明确同意外发固定合成问题、授权订单脱敏字段、模拟政策片段，并接受最多8次请求尝试时才手动执行：
 
 ```powershell
-$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-.\.venv\Scripts\python.exe -m evaluation.verify_tool_calling --mode live --allow-remote --max-model-calls 6 --output "evaluation/reports-tool-live-$stamp"
+$env:OPENAI_LOG = 'error'
+foreach ($name in @('LANGSMITH_TRACING', 'LANGSMITH_TRACING_V2', 'LANGCHAIN_TRACING', 'LANGCHAIN_TRACING_V2')) {
+    Set-Item -Path "Env:$name" -Value 'false'
+}
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+$reportDir = "evaluation/reports-tool-live-$stamp"
+if (Test-Path -LiteralPath $reportDir) { throw '报告已存在，停止以免覆盖。' }
+.\.venv\Scripts\python.exe -m evaluation.verify_tool_calling --mode live --allow-remote --max-model-calls 8 --output $reportDir
+if ($LASTEXITCODE -ne 0) { throw '失败即停，保留报告；不要自动再次运行。' }
 ```
 
-CLI强制单节点上限4、工具轮数2、提议3，全命令累计6（含重试；该CLI显式重试0），Embedding完全关闭。
-这里6是授权请求次数上限，不是金额或Token上限；费用保持null，不估造账单。
+CLI强制单节点上限4、工具轮数2、提议3，全命令共享累计8（含重试；该CLI显式重试0），Embedding完全关闭，TF-IDF。
+这里8是授权请求次数上限，不是金额或Token上限；费用保持null，不估造账单。
 默认请求超时沿用LLM_TIMEOUT_SECONDS，范围0.1–120秒。设置更高全局预算不能突破CLI的1–8硬范围。
-预算耗尽后停止模型请求并回退；不会自动重新启动、补额度、改模型或扩大样例集合。
+任一轮校验失败或预算耗尽均停止后续场景并保存部分报告；不会自动重新启动、补额度、改模型或扩大样例集合。
+包含关闭调试/追踪和源码路径检查的完整命令见[首轮排查第5节](PHASE3B_UNSAFE_REPLY_20261027.md#5-后续最多8次0重试的真实验收本轮未执行)。
 
 数据只来自临时合成业务库和已固定指纹的4份模拟政策。若这些文件被编辑/增加私有政策，入口直接拒绝外发；
 需要重新独立数据审查，而不是修改hash绕过。没有外发已有会话历史、真实业务库或审批状态。
@@ -94,6 +111,10 @@ CLI强制单节点上限4、工具轮数2、提议3，全命令累计6（含重�
 
 ```powershell
 $env:LLM_TOOL_CALLING_ENABLED = 'true'
+$env:OPENAI_LOG = 'error'
+foreach ($name in @('LANGSMITH_TRACING', 'LANGSMITH_TRACING_V2', 'LANGCHAIN_TRACING', 'LANGCHAIN_TRACING_V2')) {
+    Set-Item -Path "Env:$name" -Value 'false'
+}
 $env:LLM_TOOL_MAX_ROUNDS = '2'
 $env:LLM_TOOL_MAX_CALLS = '3'
 $env:LLM_TOOL_MAX_MODEL_CALLS = '4'
@@ -104,7 +125,7 @@ $env:RAG_REMOTE_QUERY_ENABLED = 'false'
 ```
 
 打开助手消息的“查看运行详情”，展开“只读工具调用轨迹”。已保存运行可反复查看，不触发模型；发送新问题会触发。
-网站的上限是每个节点4次，没有CLI那种整场演示累计6次限制；因此优先使用第4节受控命令验收。
+网站的上限是每个节点4次，没有CLI那种整场演示共享累计8次限制；因此优先使用第4节受控命令验收。
 操作结束停止该后端，关闭终端或Remove-Item Env:LLM_TOOL_CALLING_ENABLED后按原配置重启。
 切回false不会改写历史checkpoint，也不会自动批准旧待审核请求。
 
@@ -113,4 +134,5 @@ $env:RAG_REMOTE_QUERY_ENABLED = 'false'
 “我在已有LangGraph工作流中加了可选只读工具规划节点。模型只提出订单查询和政策检索，服务端整批校验参数、
 订单上下文和调用ID，再由绑定客户的ScopedTools执行。模型没有身份和审批权限；售后写入仍走原人工interrupt，
 恢复原run后用SQLite幂等建单。模型重试计入上限，失败回原模板。离线固定36场景检验协议和保护逻辑，
-真实千问Tool Calling的效果与费用需要另外授权验收，不能把脚本测试包装成线上准确率。”
+我另外用真实Qwen跑通了一组固定模拟业务三轮场景，5/8次请求通过确定性检查，第三轮仍停人工审核；
+这不代表全36题真实准确率或人工语言质量已通过，不能把脚本模型结果包装成线上效果。”

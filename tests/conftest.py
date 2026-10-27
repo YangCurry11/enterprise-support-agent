@@ -12,6 +12,7 @@ def isolated_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("LLM_API_KEY", "")
     monkeypatch.setenv("LLM_INTENT_ENABLED", "false")
     monkeypatch.setenv("LLM_TOOL_CALLING_ENABLED", "false")
+    monkeypatch.setenv("LLM_REPLY_DIAGNOSTICS_ENABLED", "false")
     # Tests must remain offline even after an operator enabled remote RAG locally.
     monkeypatch.setenv("RAG_MODE", "tfidf")
     monkeypatch.setenv("EMBEDDING_ENABLED", "false")

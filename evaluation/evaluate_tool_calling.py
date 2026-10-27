@@ -32,7 +32,8 @@ def tool_environment(*, live=False, model=None):
     """Only the dedicated live CLI may opt into remote chat; embedding stays off."""
     from support_agent import llm_client
     env = {"LLM_TOOL_CALLING_ENABLED": "true", "LLM_TOOL_MAX_ROUNDS": "2", "LLM_TOOL_MAX_CALLS": "3",
-           "LLM_TOOL_MAX_MODEL_CALLS": "4", "LLM_MAX_RETRIES": "0"}
+           "LLM_TOOL_MAX_MODEL_CALLS": "4", "LLM_MAX_RETRIES": "0",
+           "LLM_REPLY_DIAGNOSTICS_ENABLED": os.getenv("LLM_REPLY_DIAGNOSTICS_ENABLED", "false") if live else "false"}
     if not live:
         env.update(LLM_API_KEY="offline-not-a-real-key", LLM_MODEL="offline-scripted-qwen",
                    LLM_BASE_URL="https://offline.invalid/v1")

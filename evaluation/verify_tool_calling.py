@@ -31,6 +31,17 @@ SYNTHETIC_HASHES = {
 }
 
 
+class _AcceptanceStopped(Exception):
+    """Local check failure, not a provider exception; preserve the partial report."""
+
+
+def _reply_checks(result, index):
+    trace = result.get("tool_calling_trace", {})
+    return {f"turn_{index}_tool_model_generated": trace.get("status") == "model_generated" and not trace.get("fallback_used"),
+            f"turn_{index}_facts": all(facts(result)[0].values()),
+            f"turn_{index}_used_real_protocol": trace.get("model_calls", {}).get("actual_model_calls", 0) >= 2}
+
+
 def check_synthetic_sources(root=ROOT):
     policy_files = {p.relative_to(root).as_posix() for p in (root / "data/policies").glob("*.md")}
     if policy_files != {p for p in SYNTHETIC_HASHES if p.startswith("data/policies/")}:
@@ -53,22 +64,35 @@ def verify(*, live=False, ledger=None):
     ledger = ledger or CallLedger(8, simulated=True)
     fake = None if live else ScriptedQwen()
     results, checks, error = [], {}, None
+    stage = "conversation"
+    def require(**values):
+        checks.update(values)
+        if not all(checks.values()):
+            raise _AcceptanceStopped()
     started = time.perf_counter()
     with tool_environment(live=live, model=fake) as box, model_calls(ledger):
-        cid = box.conversation()
         try:
+            cid = box.conversation()
+            stage = "turn_1"
             first = box.message(cid, "我的订单 ORD1001 到哪了？")
             results.append(first)
+            require(**_reply_checks(first, 1),
+                    turn_1_context=first["conversation_id"] == cid and first["order_id"] == "ORD1001",
+                    first_tool_order=first.get("tool_results", {}).get("query_order", {}).get("ok") is True,
+                    no_ticket=business_db.list_tickets() == [])
+            stage = "turn_2"
             second = box.message(cid, "那它可以退款吗？")
             results.append(second)
+            require(**_reply_checks(second, 2),
+                    turn_2_context=second["conversation_id"] == cid and second["order_id"] == "ORD1001" and second["run_id"] != first["run_id"],
+                    policy_source="refund_policy.md" in {d["source"] for d in second["retrieved_docs"]},
+                    policy_tools={t["tool"] for t in second["tool_calling_trace"].get("tools", [])} == {"query_order", "search_policy"},
+                    unknown_receipt=second.get("tool_results", {}).get("query_order", {}).get("facts", {}).get("receipt", {}).get("state") == "unknown",
+                    no_ticket=business_db.list_tickets() == [])
+            stage = "turn_3"
             key = str(uuid.uuid4())
             third = box.message(cid, "那帮我申请售后吧。", key)
             results.append(third)
-            for index, result in enumerate(results[:2], 1):
-                trace = result.get("tool_calling_trace", {})
-                checks[f"turn_{index}_tool_model_generated"] = trace.get("status") == "model_generated" and not trace.get("fallback_used")
-                checks[f"turn_{index}_facts"] = all(facts(result)[0].values())
-                checks[f"turn_{index}_used_real_protocol"] = trace.get("model_calls", {}).get("actual_model_calls", 0) >= 2
             checks.update(same_conversation=all(r["conversation_id"] == cid for r in results),
                           independent_runs=len({r["run_id"] for r in results}) == 3,
                           confirmed_order=all(r["order_id"] == "ORD1001" for r in results),
@@ -79,6 +103,8 @@ def verify(*, live=False, ledger=None):
                           no_ticket=business_db.list_tickets() == [],
                           original_review=third["status"] == "awaiting_review" and third["pending"][0]["kind"] == "approval",
                           high_risk_guard=third["tool_calling_trace"].get("status") == "guarded_workflow")
+            require()
+            stage = "post_review_checks"
             attempts = len(ledger.calls)
             resent = box.message(cid, "那帮我申请售后吧。", key)
             factory = api.app.state.workflows.tools_factory
@@ -91,11 +117,15 @@ def verify(*, live=False, ledger=None):
                           replay_same_run=resent["run_id"] == third["run_id"],
                           no_replay_or_review_model_calls=len(ledger.calls) == attempts,
                           still_no_ticket=business_db.list_tickets() == [])
+            require()
+        except _AcceptanceStopped:
+            error = "acceptance_check_failed"
         except Exception as exc:
             checks["execution"] = False
             error = type(exc).__name__  # No provider body, requests or exception message in report.
         row = {"id": "tool-three-turn-e2e", "input": "订单 → 指代退款 → 售后原审核（不批准）", "checks": checks,
                "passed": bool(checks) and all(checks.values()), "error_type": error, "results": results,
+               "failure_stage": stage if error else None, "stopped_after_turn": len(results) if error else None,
                "latency_ms": (time.perf_counter() - started) * 1000, "manual_review_status": "pending"}
     return {"execution_mode": "live_qwen_tool_protocol" if live else "offline_scripted_protocol",
             "metrics": {"sample_count": 1, "passed": int(row["passed"])}, "cases": [row],

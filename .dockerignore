@@ -9,3 +9,4 @@ data/*.db*
 data/tickets.json
 __pycache__
 .pytest_cache
+.local_diagnostics

@@ -1,5 +1,9 @@
 # Phase 3B：受控只读 Tool Calling
 
+2026-10-27交付更新：真实Qwen小型模拟三轮已通过，5/8次模型尝试，5840 Token，
+人工质量复核仍待完成；最新427项后端/27项前端复跑与安全证据见[真实验收总结](PHASE3B_REAL_ACCEPTANCE_20261027.md)。
+以下首次开发轮“离线、真实调用0”等表述保留当时的历史范围，不代表第三次验收仍未执行。
+
 ## 1. 当前版本和范围
 
 开发分支 `feature/phase3b-safe-tool-calling`，从已合并3A的 `main` / `0a4b8e433c57cda1cd7751d14d03b880d44adfc1` 分出。
