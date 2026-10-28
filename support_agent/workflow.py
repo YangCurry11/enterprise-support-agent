@@ -8,6 +8,8 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt, RetryPolicy
 from .agents import AgentState, StepRecord, IntentAgent, OrderAgent, PolicyAgent, TicketAgent, LLMResponseAgent, ResponseAgent
 from .intent import extract_order_id
+from .tool_calling import ToolSettings, ToolCallingAgent
+from .model_runtime import ModelConfigError
 
 
 class WorkflowState(TypedDict, total=False):
@@ -32,13 +34,24 @@ def build_graph(tools, checkpointer):
         return {"data": state.to_dict()}
 
     def identify(raw):
-        result = execute(IntentAgent(), raw)
+        try:
+            settings = ToolSettings.read()
+            trace = {**settings.public(), "status": "ready" if settings.enabled else "disabled"} if settings.enabled else {}
+        except ModelConfigError:
+            settings = ToolSettings()
+            trace = {"enabled": True, "status": "fallback", "fallback_used": True, "error_type": "configuration_error"}
+        result = execute(IntentAgent(use_llm=not trace.get("enabled")), raw)
+        result["data"]["tool_calling_trace"] = trace
+        if trace.get("enabled") and result["data"]["intent"] in {"after_sales", "complaint", "human_escalation"}:
+            trace["status"] = "guarded_workflow"
         if result["data"]["intent"] in {"complaint", "human_escalation"}:
             result["data"]["need_human"] = True
         return result
 
     def route(raw):
         intent = raw["data"]["intent"]
+        if raw["data"].get("tool_calling_trace", {}).get("status") == "ready":
+            return "clarify" if intent == "order_query" else "safe_tools"
         if intent == "order_query":
             return "clarify"
         if intent in {"refund_policy", "shipping_policy", "after_sales", "unknown"}:
@@ -86,7 +99,7 @@ def build_graph(tools, checkpointer):
 
     def response(raw):
         # Preserve deterministic refusals and clarification replies.
-        agent = ResponseAgent() if raw["data"]["final_response"] else LLMResponseAgent()
+        agent = ResponseAgent() if raw["data"]["final_response"] or raw["data"].get("tool_calling_trace", {}).get("enabled") else LLMResponseAgent()
         return execute(agent, raw)
 
     graph = StateGraph(WorkflowState)
@@ -98,9 +111,11 @@ def build_graph(tools, checkpointer):
     graph.add_node("review", review)
     graph.add_node("ticket", ticket)
     graph.add_node("response", response)
+    graph.add_node("safe_tools", lambda raw: {"data": ToolCallingAgent(tools).run(unpack(raw["data"]), raw["run_id"]).to_dict()})
     graph.add_edge(START, "intent")
-    graph.add_conditional_edges("intent", route, {name: name for name in ["clarify", "policy", "review", "response"]})
-    graph.add_edge("clarify", "order")
+    graph.add_conditional_edges("intent", route, {name: name for name in ["clarify", "policy", "review", "response", "safe_tools"]})
+    graph.add_conditional_edges("clarify", lambda raw: "safe_tools" if raw["data"].get("tool_calling_trace", {}).get("status") == "ready" else "order", {"safe_tools": "safe_tools", "order": "order"})
+    graph.add_edge("safe_tools", "response")
     graph.add_edge("order", "response")
     graph.add_conditional_edges("policy", lambda raw: "review" if raw["data"]["intent"] == "after_sales" and not raw["data"]["final_response"] else "response",
                                 {"review": "review", "response": "response"})

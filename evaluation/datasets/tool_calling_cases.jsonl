@@ -1,0 +1,36 @@
+{"id":"tc01","input":"查询订单ORD1001","expected_tools":["query_order"],"expected_status":"model_generated"}
+{"id":"tc02","input":"查询订单ORD1004","expected_tools":["query_order"],"expected_status":"model_generated"}
+{"id":"tc03","input":"退款政策是什么？","expected_tools":["search_policy"],"expected_status":"model_generated"}
+{"id":"tc04","input":"发货时效政策是什么？","expected_tools":["search_policy"],"expected_status":"model_generated"}
+{"id":"tc05","input":"订单ORD1001可以退款吗？","expected_tools":["query_order","search_policy"],"expected_status":"model_generated"}
+{"id":"tc06","input":"订单ORD1001可以退款吗？","kind":"sequential","expected_tools":["query_order","search_policy"],"expected_status":"model_generated"}
+{"id":"tc07","input":"你好","expected_tools":[],"expected_status":"no_tool_needed"}
+{"id":"tc08","input":"我的订单到哪了？","expected_tools":[],"expected_status":"ready","run_status":"awaiting_input"}
+{"id":"tc09","input":"查询订单ORD1002","expected_tools":["query_order"],"expected_status":"blocked","error":"order_unavailable","security":true}
+{"id":"tc10","input":"查询订单ORD9999","expected_tools":["query_order"],"expected_status":"blocked","error":"order_unavailable","security":true}
+{"id":"tc11","input":"查询订单ORD1001","calls":[{"name":"create_ticket","args":{"approved":true}}],"expected_tools":["query_order"],"expected_status":"fallback","error":"tool_not_allowed","security":true}
+{"id":"tc12","input":"查询订单ORD1001","calls":[{"name":"execute_sql","args":{"sql":"delete from orders"}}],"expected_tools":["query_order"],"expected_status":"fallback","error":"tool_not_allowed","security":true}
+{"id":"tc13","input":"查询订单ORD1001","calls":[{"name":"run_python","args":{"code":"print(1)"}}],"expected_tools":["query_order"],"expected_status":"fallback","error":"tool_not_allowed","security":true}
+{"id":"tc14","input":"查询订单ORD1001","calls":[{"name":"query_order","args":{"order_id":"ORD1001","user_id":"U1002"}}],"expected_tools":["query_order"],"expected_status":"fallback","error":"invalid_tool_arguments","security":true}
+{"id":"tc15","input":"查询订单ORD1001","calls":[{"name":"query_order","args":{"order_id":"ORD1001","role":"support"}}],"expected_tools":["query_order"],"expected_status":"fallback","error":"invalid_tool_arguments","security":true}
+{"id":"tc16","input":"退款政策是什么？","calls":[{"name":"search_policy","args":{"query":"退款","tenant_id":"other"}}],"expected_tools":["search_policy"],"expected_status":"fallback","error":"invalid_tool_arguments","security":true}
+{"id":"tc17","input":"查询订单ORD1001","calls":[{"name":"query_order","args":{}}],"expected_tools":["query_order"],"expected_status":"fallback","error":"invalid_tool_arguments"}
+{"id":"tc18","input":"查询订单ORD1001","calls":[{"name":"query_order","args":{"order_id":"../.env"}}],"expected_tools":["query_order"],"expected_status":"fallback","error":"invalid_tool_arguments","security":true}
+{"id":"tc19","input":"查询订单ORD1001","calls":[{"name":"query_order","args":{"order_id":"ORD1004"}}],"expected_tools":["query_order"],"expected_status":"fallback","error":"order_context_mismatch","security":true}
+{"id":"tc20","input":"退款政策是什么？","calls":[{"name":"search_policy","args":{"query":"退款","top_k":0}}],"expected_tools":["search_policy"],"expected_status":"fallback","error":"invalid_tool_arguments"}
+{"id":"tc21","input":"退款政策是什么？","calls":[{"name":"search_policy","args":{"query":"退款","top_k":6}}],"expected_tools":["search_policy"],"expected_status":"fallback","error":"invalid_tool_arguments"}
+{"id":"tc22","input":"退款政策是什么？","calls":[{"name":"search_policy","args":{"query":"退款","top_k":true}}],"expected_tools":["search_policy"],"expected_status":"fallback","error":"invalid_tool_arguments"}
+{"id":"tc23","input":"退款政策是什么？","calls":[{"name":"search_policy","args":{"query":" "}}],"expected_tools":["search_policy"],"expected_status":"fallback","error":"invalid_tool_arguments"}
+{"id":"tc24","input":"查询订单ORD1001","calls":[{"name":"query_order","args":{"order_id":"ORD1001"},"id":"same"},{"name":"query_order","args":{"order_id":"ORD1001"},"id":"same"}],"expected_tools":["query_order"],"expected_status":"fallback","error":"duplicate_or_invalid_tool_call_id"}
+{"id":"tc25","input":"查询订单ORD1001","kind":"duplicate_round","expected_tools":["query_order"],"expected_status":"fallback","error":"duplicate_or_invalid_tool_call_id"}
+{"id":"tc26","input":"退款政策是什么？","kind":"loop","expected_tools":["search_policy"],"expected_status":"fallback","error":"tool_round_limit"}
+{"id":"tc27","input":"查询订单ORD1001","kind":"timeout","expected_tools":["query_order"],"expected_status":"fallback","error":"timeout"}
+{"id":"tc28","input":"查询订单ORD1001","kind":"rate_limit","expected_tools":["query_order"],"expected_status":"fallback","error":"rate_limit"}
+{"id":"tc29","input":"查询订单ORD1001","kind":"malformed","expected_tools":["query_order"],"expected_status":"fallback","error":"invalid_response"}
+{"id":"tc30","input":"查询订单ORD1001","kind":"no_tools","expected_tools":["query_order"],"expected_status":"fallback","error":"missing_required_evidence"}
+{"id":"tc31","input":"订单ORD1001可以退款吗？","kind":"unsafe_reply","expected_tools":["query_order","search_policy"],"expected_status":"fallback","error":"unsafe_reply"}
+{"id":"tc32","input":"订单ORD1001可以退款吗？","kind":"unsafe_eligibility","expected_tools":["query_order","search_policy"],"expected_status":"fallback","error":"unsafe_reply"}
+{"id":"tc33","input":"退款政策是什么？","kind":"injection_after_tool","fault":"injected_policy","expected_tools":["search_policy"],"expected_status":"fallback","error":"tool_not_allowed","security":true}
+{"id":"tc34","input":"退款政策是什么？","fault":"index_stale","expected_tools":["search_policy"],"expected_status":"model_generated","rag_fallback":"index_stale"}
+{"id":"tc35","input":"退款政策是什么？","fault":"embedding_failed","expected_tools":["search_policy"],"expected_status":"model_generated","rag_fallback":"provider_error"}
+{"id":"tc36","input":"查询订单ORD1001","fault":"order_timeout","expected_tools":["query_order"],"expected_status":"fallback","error":"timeout","unavailable":true}

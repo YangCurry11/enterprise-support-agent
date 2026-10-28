@@ -65,3 +65,4 @@ evaluation/reports-*/
 .pytest_tmp*/
 .impeccable/review/
 .rag_cache/
+.local_diagnostics/

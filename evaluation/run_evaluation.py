@@ -104,7 +104,9 @@ def write_artifact(report, output):
             for row in report.get(key, {}).get("cases", []):
                 for result in row.get("results", []):
                     values = {"component": key, "case_id": row["id"], "run_id": result["run_id"],
-                              "response_mode": reply_eval.response_mode(result)[0], "response": result.get("final_response", ""),
+                              "response_mode": ("tool_" + result["tool_calling_trace"].get("status", "unrecorded"))
+                                  if result.get("tool_calling_trace", {}).get("enabled") else reply_eval.response_mode(result)[0],
+                              "response": result.get("final_response", ""),
                               "review_status": "pending"}
                     writer.writerow({name: csv_safe(value) for name,value in values.items()})
 

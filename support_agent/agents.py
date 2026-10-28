@@ -43,6 +43,7 @@ class AgentState: # 记录整个对话任务的状态
     steps: List[StepRecord] = field(default_factory=list) #保存每个agent的执行情况
     conversation_id: Optional[str] = None
     conversation_context: Dict[str, Any] = field(default_factory=dict)
+    tool_calling_trace: Dict[str, Any] = field(default_factory=dict)
 
     def add_step(self, name: str, detail: Dict[str, Any]): # 添加一个agent的执行情况
         self.steps.append(StepRecord(name=name, detail=detail))
@@ -54,10 +55,16 @@ class AgentState: # 记录整个对话任务的状态
 
 
 class IntentAgent: # 意图识别
+    def __init__(self, use_llm=True):
+        self.use_llm = use_llm
+
     def run(self, state: AgentState) -> AgentState:
         result = classify_intent(state.user_input)
         from .llm_client import classify_with_llm
-        result = classify_with_llm(state.user_input, result)
+        if self.use_llm:
+            result = classify_with_llm(state.user_input, result)
+        else:
+            result.model_trace = {"mode": "rules_tool_guard", "model_used": False, "actual_model_calls": 0}
         state.intent = result.intent
         state.intent_confidence = result.confidence
         state.intent_reason = result.reason

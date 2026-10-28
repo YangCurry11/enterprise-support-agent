@@ -5,6 +5,8 @@
 
 **v0.4 / Phase 3A 真实Embedding检索核验**：[混合RAG精讲](docs/PHASE3A_HYBRID_RAG.md) · [验证记录](docs/PHASE3A_VERIFICATION.md) · [2026-10-26收尾报告](docs/PHASE3A_REAL_ACCEPTANCE_20261026.md)。用户已运行text-embedding-v4/1024维；本轮仅离线核验既有真实报告，新增模型请求0。36题三模式缓存排名可复现；独立人工证据复核与自动安全拒答尚未验收。默认仍为TF-IDF，不自动启用付费调用。
 
+**v0.5 / Phase 3B 真实小场景工程验收**：[真实验收总结](docs/PHASE3B_REAL_ACCEPTANCE_20261027.md) · [只读工具实现](docs/PHASE3B_SAFE_TOOL_CALLING.md) · [交付验证记录](docs/PHASE3B_VERIFICATION.md#11-真实验收后的最终交付审查2026-10-27) · [Windows运行与演示](docs/PHASE3B_DEMO.md)。qwen3.7-flash-2026-07-15完成一组固定模拟业务的三轮验收：共享预算8次，实际5次，确定性校验5次成功，供应商返回5840 Token；第三轮停在原人工审核。人工语言质量复核仍待完成。可选功能默认关闭，模型只可选择query_order/search_policy。2026-10-27交付复跑427项后端、27项前端及生产构建通过。开发分支为feature/phase3b-safe-tool-calling；是否进入main以PR合并状态为准，上方CI徽章仅展示main。
+
 一个基于 **Vue 3 + TypeScript、FastAPI、LangGraph 与 SQLite** 的客服工作流项目：在同一会话中查询订单、追问政策、申请售后，并将需要业务写入的请求交给人工审核。
 
 项目的重点不只是“生成一句回复”，而是把**会话记忆、工具权限、人工审核、幂等建单和故障恢复**接到同一条可追踪的处理链路。
@@ -60,9 +62,10 @@
 | 政策 RAG | 默认TF-IDF；可选独立Embedding、NumPy Dense、RRF混合检索；稳定片段ID与来源 | 不把融合分当置信度；无索引或向量错误时明确回退，不自动付费重建 |
 | 模型回退 | 可配置兼容 API；分类回退规则，回复失败保留模板 | 模型不可用时仍能运行确定性业务，轨迹记录实际模式 |
 | 签收事实边界 | 本轮授权工具生成 received / not_received / unknown 三态，区分 null 与0天 | 已发货或缺签收记录不能被模型解释成“尚未签收”；政策条件不等于订单事实 |
+| 可选只读Tool Calling | 默认false；模型只提议订单查询/政策检索；整批schema、调用ID、上下文与预算校验 | 身份与审批由服务端控制；失败回原模板，模型无法直接建单或执行SQL |
 | 效果评测 | 意图同批规则/模型对比、政策检索、回复/权限/审核、离线故障与三轮工具；JSON / CSV / Markdown / 待人工表 | 将功能测试、模型效果与人工质量验收分开；显式组件、含重试的调用预算 |
 
-这里的 Multi-Agent 是**显式分工、受约束的业务工作流**，不是无限循环的自主规划器。Phase 3A已增加可选Embedding与混合检索，并完成小型模拟开发集的真实向量缓存核验；不是生产效果证明，没有引入向量数据库、模型微调或Phase 3B自主Tool Calling。
+这里的 Multi-Agent 是**显式分工、受约束的业务工作流**。Phase 3A已增加可选Embedding与混合检索，并完成小型模拟开发集的真实向量缓存核验；Phase 3B增加有界只读工具规划，仍由原LangGraph控制写操作和人工审核。没有引入向量数据库或模型微调，小型开发集结果不作为生产效果证明。
 
 ## 三轮对话实操
 
@@ -143,7 +146,7 @@ flowchart TD
 
 ### 环境要求
 
-- Python 3.12，后端沿用项目的 .venv。
+- CI与Docker使用Python 3.12；本次本地交付沿用Python 3.11.7的.venv并通过全部测试，已有环境无需重装。
 - Node.js 24、pnpm 11.19.0（与 packageManager 和 CI 对齐）。
 - Windows / PowerShell 为主要本地开发环境；SQLite 不需要另启数据库服务。
 - 可选的大模型 API：未配置时可以使用规则分类和模板回复。
@@ -199,6 +202,19 @@ pnpm.cmd dev
 这些凭证仅在 development 且未自定义 SUPPORT_AUTH_TOKENS 时使用。如果已有 .env 私有配置，以自己的配置为准；不要为了截图覆盖真实密钥。客服新建会话时需要填写合法服务对象，例如 U1001。
 
 ## 评测与测试
+
+### Phase 3B 只读工具离线验收
+
+```powershell
+.\.venv\Scripts\python.exe -m evaluation.evaluate_tool_calling --mode offline --output evaluation/reports-tool-calling-my-run
+.\.venv\Scripts\python.exe -m evaluation.verify_tool_calling --mode offline --output evaluation/reports-tool-e2e-my-run
+# 仅读取配置和合成数据指纹，不创建客户端、不联网
+.\.venv\Scripts\python.exe -m evaluation.verify_tool_calling --check-config
+```
+
+2026-10-27最终交付重新执行完整Pytest **427 passed**、前端 **27 passed**，pip check和生产构建通过。固定36场景全部符合工程预期，但其中有故意错误的脚本模型输出：原始工具名称集合选择29/36、已检查参数通过23/32、实际模型触发读取成功17/20、安全样例拒绝11/11、回退24/36。模拟模型尝试50次，真实供应商调用0；这些不是千问准确率。新旧三轮离线各通过1/1；新三轮4次脚本请求，第三轮停在原审核节点。详细分母、错误记录和边界见[交付验证](docs/PHASE3B_VERIFICATION.md#11-真实验收后的最终交付审查2026-10-27)。
+
+用户第三次真实Tool Calling验收已通过：原生tool_calls → 服务端授权执行 → ToolMessage按ID返回 → 最终事实与来源校验，三轮1/1符合工程预期，实际5/8次请求、0重试、5840 Token。在线24项检查通过；人工表3行仍pending，不能称为全36题真实准确率或人工验收通过。详见[安全汇总](docs/PHASE3B_REAL_ACCEPTANCE_20261027.md)。本次交付仅核验既有真实报告和重新运行离线测试，没有再次付费调用；未来任何真实复跑仍需单独授权。下面3A/第二阶段数字保留历史范围。
 
 ### Phase 3A 三模式对照
 
@@ -411,6 +427,8 @@ docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/va
 
 | 想了解什么 | 从这里开始 |
 |---|---|
+| Phase 3B真实三轮、5/8请求、两次失败修复、安全边界和待人工事项 | [Phase 3B真实验收总结](docs/PHASE3B_REAL_ACCEPTANCE_20261027.md) |
+| Phase 3B只读工具协议、参数/权限/预算及Windows运行 | [只读工具实现](docs/PHASE3B_SAFE_TOOL_CALLING.md) · [演示指南](docs/PHASE3B_DEMO.md) |
 | 如何运行、三轮演示、代码学习顺序与面试追问 | [第一阶段升级精讲](docs/PHASE1_UPGRADE.md) |
 | 四种 ID、数据库表、上下文、检查点与恢复边界 | [多轮架构说明](docs/MULTI_TURN_ARCHITECTURE.md) |
 | 如何跑评测，Accuracy / F1 / Recall / P95 怎么定义 | [评测指南](docs/EVALUATION_GUIDE.md) |
@@ -426,4 +444,4 @@ docker run --env-file .env.production -p 127.0.0.1:8000:8000 -v support-data:/va
 | 原有学习路线、API 示例与第三方接入 | [学习路线](docs/learning_path.md) · [API 示例](docs/api_examples.md) · [Dify / Coze](docs/dify_coze_setup.md) |
 | 本次页面图的采集环境与复现步骤 | [截图说明](docs/screenshots/README.md) |
 
-后续迭代优先补齐人工复核的独立评测集、多场景真实模型验证与业务适配，再依据错误分析决定是否升级检索或调度架构。本次仅完成Phase 3A收尾，没有开发Phase 3B。
+后续迭代优先补齐人工复核的独立评测集、多场景真实模型验证与业务适配，再依据错误分析决定是否升级检索或调度架构。Phase 3B已完成只读工具开发和一组真实Qwen三轮工程验收；当前不代表生产上线或后续阶段已经开发。
